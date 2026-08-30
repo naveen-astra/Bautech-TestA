@@ -1,0 +1,68 @@
+# Personas and how each one signs in.
+#
+# No secret is stored here. Every credential is an environment variable name,
+# resolved at render time and passed to Maestro as a parameter, so this file is
+# safe to commit and a leaked repo leaks nothing.
+#
+# ---------------------------------------------------------------------------
+# THE OTP PROBLEM
+#
+# Bautech has no password login. Sign-in is a one-time code sent to a phone or
+# an email, so an unattended agent has to obtain that code by itself. Two modes
+# are supported; both are declared per persona so they can be mixed.
+#
+#   fixed  The number is registered in Firebase Auth as a test number with a
+#          fixed verification code. No SMS is sent, no reCAPTCHA appears, and
+#          the code never changes. This is the clean answer and needs one
+#          config change from Navicon.
+#
+#   relay  A small service polls an IMAP mailbox and serves the most recent
+#          code over HTTP. The flow fetches it mid-login with Maestro's own
+#          http client. Needs nothing from Navicon, but adds a moving part and
+#          a few seconds per login.
+#
+# Until one of these is confirmed working against the real app, nothing runs
+# unattended. See README, "What is still needed".
+# ---------------------------------------------------------------------------
+
+defaults:
+  country_code: "+91"
+  otp_mode: fixed
+  # Where the relay serves codes, when otp_mode is `relay`. The device has to
+  # be able to reach this: on BrowserStack that means a public URL or a
+  # BrowserStack Local tunnel, not localhost.
+  relay_url_env: SENTINEL_OTP_RELAY_URL
+  # How long to wait for a code to arrive before giving up on the login.
+  otp_timeout_ms: 30000
+
+personas:
+
+  Owner:
+    identifier_env: BAUTECH_OWNER_PHONE
+    otp_env: BAUTECH_OWNER_OTP        # used when otp_mode is `fixed`
+    otp_mode: fixed
+    login_method: phone
+
+  Admin:
+    identifier_env: BAUTECH_ADMIN_PHONE
+    otp_env: BAUTECH_ADMIN_OTP
+    otp_mode: fixed
+    login_method: phone
+
+  Site Engineer:
+    identifier_env: BAUTECH_ENGINEER_PHONE
+    otp_env: BAUTECH_ENGINEER_OTP
+    otp_mode: fixed
+    login_method: phone
+
+# Fixtures the suite assumes exist before it starts. The preflight phase checks
+# these and repairs what it can rather than letting eighty cases fail one by one
+# because a site was renamed.
+fixtures:
+  site_a: "Site A"
+  site_b: "Site B"
+  # Site B must exist and be visible to Owner/Admin but not to the Engineer.
+  # Several prohibitions depend on that asymmetry being real: if Site B does not
+  # exist at all, "the Engineer cannot see Site B" is vacuously true and proves
+  # nothing. The differential probe is what catches that.
+  engineer_sites: [site_a]
