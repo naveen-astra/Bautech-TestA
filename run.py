@@ -50,6 +50,27 @@ from sentinel.verifier import verify
 ROOT = Path(__file__).resolve().parent
 
 
+def load_dotenv(path: Path | None = None) -> None:
+    """Read .env into the environment, if it is there.
+
+    Hand-rolled rather than a dependency: the format we need is KEY=value, one
+    per line. An already-exported variable wins, so a single override on the
+    command line does not mean editing the file.
+    """
+    path = path or ROOT / ".env"
+    if not path.exists():
+        return
+    for line in path.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, _, value = line.partition("=")
+        key = key.strip()
+        value = value.strip().strip('"').strip("'")
+        if key and value and key not in os.environ:
+            os.environ[key] = value
+
+
 def _log(message: str) -> None:
     print(message, flush=True)
 
@@ -177,6 +198,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--dry-run", action="store_true", help="plan and render, run nothing")
     parser.add_argument("--timeout", type=int, default=1800, help="seconds for the whole run")
     args = parser.parse_args(argv)
+    load_dotenv()
 
     run_id = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S") + "-" + uuid.uuid4().hex[:4]
     results_dir = ROOT / "results" / run_id
