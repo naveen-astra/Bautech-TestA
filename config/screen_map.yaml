@@ -1,0 +1,361 @@
+# Screen map - the only place UI knowledge lives.
+#
+# A compiled TestPlan names logical targets ("stock_level", "add_site_button").
+# This file turns those into Maestro selectors. That split is what keeps the
+# system general: when Bautech moves a button, this file changes and no Python
+# does. It is also what stops the LLM inventing selectors it cannot know.
+#
+# ---------------------------------------------------------------------------
+# STATUS: UNVERIFIED
+#
+# Every entry below is a hypothesis. Nothing here has been checked against a
+# running build, because no Bautech APK was available when this was written.
+# The seeded entries come from two sources, both marked per-entry:
+#
+#   screenshot  - read off a real screen capture (drawer, auth, notifications)
+#   guide       - a module or label named in "Bautech - The Complete Guide"
+#   assumed     - a plausible guess, unconfirmed
+#
+# Phase 1 replaces every `source: assumed` with a selector read from
+# `maestro hierarchy`, and flips `verified: true`. The renderer refuses to emit
+# a flow for an unverified target unless SENTINEL_ALLOW_UNVERIFIED=1, so a run
+# cannot quietly depend on a guess.
+# ---------------------------------------------------------------------------
+
+meta:
+  app_id: null              # Phase 1: adb shell pm list packages | grep -i bau
+  platform: android
+  ui_toolkit: flutter       # assumed; confirm via `maestro hierarchy` shape
+  verified: false
+
+# Flutter exposes text and Semantics identifiers, never widget Keys. Prefer an
+# id selector when the app sets Semantics.identifier; fall back to text.
+selector_preference: [id, text]
+
+# ---------------------------------------------------------------------------
+# Screens. `anchor` is the element that proves we actually arrived - it is the
+# reachability rung of the negative-case ladder, so it must be something only
+# this screen shows.
+# ---------------------------------------------------------------------------
+screens:
+
+  login:
+    anchor: {text: "Welcome Back"}
+    source: screenshot
+    verified: false
+
+  otp_entry:
+    anchor: {text: "Verify OTP"}
+    source: assumed
+    verified: false
+
+  home:
+    anchor: {text: "New Site"}
+    source: screenshot
+    verified: false
+
+  drawer:
+    anchor: {text: "Profile Completion"}
+    source: screenshot
+    verified: false
+    opened_by: {id: "hamburger", text: "Menu"}
+
+  sites_list:
+    anchor: {text: "Sites"}
+    source: guide
+    verified: false
+
+  site_home:
+    anchor: {text: "Modules"}
+    source: guide
+    verified: false
+
+  material:
+    anchor: {text: "Material"}
+    source: guide
+    verified: false
+
+  machinery:
+    anchor: {text: "Machinery"}
+    source: guide
+    verified: false
+
+  labour:
+    anchor: {text: "Labour"}
+    source: guide
+    verified: false
+
+  tasks:
+    anchor: {text: "Tasks"}
+    source: guide
+    verified: false
+
+  emb:
+    anchor: {text: "eMB"}
+    source: guide
+    verified: false
+
+  expenses:
+    anchor: {text: "Expenses"}
+    source: guide
+    verified: false
+
+  parties:
+    anchor: {text: "Parties"}
+    source: guide
+    verified: false
+
+  reports:
+    anchor: {text: "Reports"}
+    source: guide
+    verified: false
+
+  chat:
+    anchor: {text: "Chats"}
+    source: screenshot
+    verified: false
+
+  notifications:
+    anchor: {text: "Notifications"}
+    source: screenshot
+    verified: false
+
+  alerts:
+    anchor: {text: "My Alerts"}
+    source: screenshot
+    verified: false
+
+  issues:
+    anchor: {text: "Issues"}
+    source: guide
+    verified: false
+
+  invite_manage_users:
+    anchor: {text: "Invite & Manage Users"}
+    source: screenshot
+    verified: false
+
+  billing:
+    anchor: {text: "Billing & Payment"}
+    source: screenshot
+    verified: false
+
+  my_licence:
+    anchor: {text: "My Licence"}
+    source: screenshot
+    verified: false
+
+  settings:
+    anchor: {text: "Settings"}
+    source: screenshot
+    verified: false
+
+# ---------------------------------------------------------------------------
+# Navigation. How to reach a screen from the app home. The renderer emits these
+# as a tap sequence; `via_drawer` opens the side menu first.
+# ---------------------------------------------------------------------------
+navigation:
+  drawer_items:      # seen on a real capture of the side menu
+    source: screenshot
+    items:
+      invite_manage_users: "Invite & Manage Users"
+      billing: "Billing & Payment"
+      company_profile: "Company Profile"
+      my_licence: "My Licence"
+      settings: "Settings"
+      chat: "BauChat preview"
+      explorer: "Explorer Home"
+
+  routes:
+    sites_list:   {from: home, taps: ["Sites"], source: assumed}
+    material:     {from: site_home, taps: ["Material"], source: assumed}
+    machinery:    {from: site_home, taps: ["Machinery"], source: assumed}
+    labour:       {from: site_home, taps: ["Labour"], source: assumed}
+    tasks:        {from: site_home, taps: ["Tasks"], source: assumed}
+    expenses:     {from: site_home, taps: ["Expenses"], source: assumed}
+    parties:      {from: site_home, taps: ["Parties"], source: assumed}
+    reports:      {from: site_home, taps: ["Reports"], source: assumed}
+    issues:       {from: site_home, taps: ["Issues"], source: assumed}
+    billing:      {from: home, via_drawer: true, taps: ["Billing & Payment"], source: screenshot}
+    invite_manage_users:
+                  {from: home, via_drawer: true, taps: ["Invite & Manage Users"], source: screenshot}
+
+# ---------------------------------------------------------------------------
+# Controls. Named affordances a test may look for or act on. Prohibition
+# assertions ("Engineer must not see Add Site") resolve through here, and each
+# one records the module/action it corresponds to so the oracle can name the
+# control persona for a differential probe.
+# ---------------------------------------------------------------------------
+controls:
+
+  add_site_button:
+    screen: sites_list
+    selector: {text: "Add Site"}
+    spec: {module: sites, action: create_site}
+    source: assumed
+    verified: false
+
+  edit_site_button:
+    screen: site_home
+    selector: {text: "Edit"}
+    spec: {module: sites, action: edit_site_details}
+    source: assumed
+    verified: false
+
+  site_modules_toggle:
+    screen: site_home
+    selector: {text: "Modules"}
+    spec: {module: sites, action: enable_disable_modules}
+    source: assumed
+    verified: false
+
+  approve_join_request_button:
+    screen: invite_manage_users
+    selector: {text: "Approve"}
+    spec: {module: users, action: approve_reject_join}
+    source: assumed
+    verified: false
+
+  buy_licence_button:
+    screen: billing
+    selector: {text: "Buy"}
+    spec: {module: users, action: buy_add_remove_licences}
+    source: assumed
+    verified: false
+
+  remove_owner_button:
+    screen: invite_manage_users
+    selector: {text: "Remove"}
+    spec: {module: users, action: edit_owner_transfer}
+    source: assumed
+    verified: false
+
+  approve_emb_button:
+    screen: emb
+    selector: {text: "Approve"}
+    spec: {module: tasks_emb, action: approve_emb_internal}
+    source: assumed
+    verified: false
+
+  end_rental_button:
+    screen: machinery
+    selector: {text: "End Rental"}
+    spec: {module: machinery, action: end_rental_convert_owned}
+    source: assumed
+    verified: false
+
+  create_global_alert_button:
+    screen: alerts
+    selector: {text: "Create Alert"}
+    spec: {module: alerts, action: set_global_alert_rule}
+    source: screenshot
+    verified: false
+
+  direct_message_button:
+    screen: chat
+    selector: {text: "New Message"}
+    spec: {module: chat, action: direct_message}
+    source: assumed
+    verified: false
+
+# ---------------------------------------------------------------------------
+# Values. Things a test reads. `kind: numeric` values are parsed into a number
+# so the verifier can do arithmetic on them; the parse rule strips currency and
+# unit noise ("600 bags", "Rs 1,300").
+# ---------------------------------------------------------------------------
+values:
+
+  stock_level:
+    screen: material
+    selector: {id: "stock_value"}
+    kind: numeric
+    source: assumed
+    verified: false
+
+  monthly_bill_total:
+    screen: billing
+    selector: {text: "Total"}
+    kind: numeric
+    source: assumed
+    verified: false
+
+  licence_tier_name:
+    screen: my_licence
+    selector: {id: "licence_tier"}
+    kind: text
+    source: assumed
+    verified: false
+
+  emb_approval_status:
+    screen: emb
+    selector: {id: "approval_status"}
+    kind: text
+    source: assumed
+    verified: false
+
+# ---------------------------------------------------------------------------
+# Entities. A create/edit form, described once and reused. This is what stops
+# the suite from becoming 85 bespoke scripts.
+# ---------------------------------------------------------------------------
+entities:
+
+  site:
+    screen: sites_list
+    open_create: {text: "Add Site"}
+    fields:
+      name: {selector: {id: "site_name"}, source: assumed}
+      address: {selector: {id: "site_address"}, source: assumed}
+    submit: {text: "Save"}
+    list_item: {text: "${name}"}
+    verified: false
+
+  material_purchase:
+    screen: material
+    open_create: {text: "Add purchase"}
+    fields:
+      item: {selector: {id: "material_item"}, source: assumed}
+      quantity: {selector: {id: "material_qty"}, source: assumed}
+      vendor: {selector: {id: "material_vendor"}, source: assumed}
+    submit: {text: "Save"}
+    verified: false
+
+  task:
+    screen: tasks
+    open_create: {text: "Add Task"}
+    fields:
+      name: {selector: {id: "task_name"}, source: assumed}
+      quantity: {selector: {id: "task_qty"}, source: assumed}
+    submit: {text: "Save"}
+    verified: false
+
+  emb_entry:
+    screen: emb
+    open_create: {text: "Add entry"}
+    fields:
+      quantity: {selector: {id: "emb_qty"}, source: assumed}
+    submit: {text: "Save"}
+    verified: false
+
+  party:
+    screen: parties
+    open_create: {text: "Add"}
+    fields:
+      name: {selector: {id: "party_name"}, source: assumed}
+      type: {selector: {id: "party_type"}, source: assumed}
+    submit: {text: "Save"}
+    verified: false
+
+# ---------------------------------------------------------------------------
+# Text that means "the app refused". Used by the enforcement rung: an attempt
+# that lands on one of these is evidence of a deliberate block rather than an
+# automation stall.
+# ---------------------------------------------------------------------------
+refusal_markers:
+  - "not authorised"
+  - "not authorized"
+  - "permission denied"
+  - "access denied"
+  - "you do not have permission"
+  - "not allowed"
+  - "restricted"
+  - "contact your admin"
