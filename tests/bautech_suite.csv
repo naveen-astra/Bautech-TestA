@@ -1,0 +1,86 @@
+ID,Test case,Who,Steps to replicate,Expected result
+TC-001,Create site,Owner,Sites -> Add Site -> name it Site A -> fill details -> Save.,Site A is created and opens; it appears in the site list.
+TC-002,Create second site,Owner,Repeat for Site B.,Site B created; both A and B listed.
+TC-003,Add modules to a site,Owner,"Open Site A -> Modules -> switch on Expenses, Material, Machinery, Labour, Tasks/eMB -> Save.",Only the chosen modules appear in Site A's menu.
+TC-004,Different modules per site,Owner,Open Site B -> switch on a different set (e.g. Expenses + Material only).,Site B shows only its own set; Site A is unchanged. Proves modules are per-site.
+TC-005,Edit site details,Owner,Open Site A -> Edit -> change address/details -> Save.,Change saves and shows on the site page.
+TC-006,View site list,Owner,Open the Sites list.,Both sites visible with correct names/details.
+TC-007,Turn a module off,Owner,Site B -> Modules -> switch Machinery off -> Save.,Machinery disappears from Site B's menu; still present on Site A.
+TC-008,Create site - Admin,Admin,Sites -> Add Site -> create Site C.,Admin CAN create a site (Admin has site rights).
+TC-009,Create site - Engineer [MUST BE BLOCKED],Site Engineer,Sites -> look for Add Site.,Blocked - no Add Site option for Site Engineer.
+TC-010,Delete / archive site,Owner,Site C -> Settings -> Archive/Delete -> confirm.,Site C is removed from the active list. Try the same as Engineer -> must be blocked.
+TC-011,Invite - Admin,Owner,Team -> Invite -> enter person -> role Admin -> sites All -> licence Complete.,"Before sending, the screen shows the licence name + Rs /month."
+TC-012,Invite shows cost,Owner,"On the same screen, change the site count up and down.",The licence tier and Rs update live as the site count changes.
+TC-013,Send invite,Owner,Send the invite.,Invitee receives it; status shows Pending.
+TC-014,Approve join request,Owner,Team -> Pending -> Approve the Admin.,Admin goes live; one seat/licence is consumed; bill updates.
+TC-015,Reject a join request,Owner,Invite a dummy person -> then Reject them.,Person is not added; no licence consumed.
+TC-016,Invite - Engineer,Admin,Team -> Invite -> role Site Engineer -> sites Site A only -> licence Essential.,"Invite shows Essential + Rs 1,300; sends successfully."
+TC-017,Admin approves,Admin,Approve the Site Engineer's request.,Engineer goes live on Site A only; one seat used.
+TC-018,Set role + site + licence,Admin,"Team -> open the Engineer -> confirm role, sites and licence are all set here.",All three are visible and editable by Admin.
+TC-019,Engineer initiates invite,Site Engineer,Site A -> Invite -> share the site link with a helper.,Request is created but sits as Pending - Engineer cannot grant the seat.
+TC-020,Engineer approves a request [MUST BE BLOCKED],Site Engineer,Try to approve that pending request.,Blocked - only Admin/Owner can approve.
+TC-021,Engineer manages users [MUST BE BLOCKED],Site Engineer,Open Team / Users.,"Blocked or view-only - cannot set anyone's role, site or licence."
+TC-022,Change a person's role,Admin,Team -> Engineer -> change role to Manager -> Save -> change it back.,Role changes take effect immediately; no billing change.
+TC-023,Change a person's site access,Admin,Team -> Engineer -> add Site B -> Save -> then remove it again.,Access changes at once; Engineer sees/loses Site B accordingly.
+TC-024,Remove a member,Owner,Team -> remove the dummy person.,Person removed and their licence is freed; bill drops.
+TC-025,View total bill,Owner,Billing -> view the monthly total.,"Total = sum of every person's licence, listed per person."
+TC-026,Upgrade a licence,Owner,Billing/Team -> Engineer -> raise sites 1 -> 3 (Essential -> Professional).,Charges only the Rs 200 difference; effective immediately.
+TC-027,Downgrade a licence,Owner,Bring the Engineer back to 1 site.,"Downgrade is scheduled for the next cycle, not immediate."
+TC-028,Pause,Owner,Pause a member (or the workspace).,"Bill goes to Rs 0; roles, sites and data are kept."
+TC-029,Unpause,Owner,Unpause the same member.,Everything restores exactly as before.
+TC-030,Admin opens billing [MUST BE BLOCKED],Admin,Try to open Billing / buy a licence.,Blocked - billing is Owner-only.
+TC-031,Remove the Owner [MUST BE BLOCKED],Admin,Team -> try to remove the Owner account.,Blocked - the Owner can never be removed.
+TC-032,Create task,Site Engineer,Site A -> Tasks -> Add Task -> fill name/qty -> Save.,Task created on Site A.
+TC-033,Assign task owner,Admin,Open the task -> assign it to the Site Engineer.,Assignment saves and shows on the task.
+TC-034,Add progress update,Site Engineer,Task -> Add progress -> enter qty done -> Save.,Progress recorded; task % updates.
+TC-035,Turn on eMB approval,Admin,Task -> Settings -> switch on Require eMB approval.,Setting saves; eMBs on this task now need approval.
+TC-036,Name an approver,Admin,Same screen -> add the Site Engineer as internal approver -> Save.,Approver saved and shown on the task.
+TC-037,Create eMB entry,Site Engineer,Task -> eMB -> Add entry -> fill measurements -> Save.,eMB entry created in draft.
+TC-038,Submit eMB,Site Engineer,Submit the eMB for approval.,Status becomes Pending approval; approver is notified.
+TC-039,Approve eMB - named approver,Site Engineer,"As the named internal approver, open the eMB -> Approve.",Approval succeeds and is recorded against their name.
+TC-040,Approve eMB - Admin,Admin,Open another submitted eMB -> Approve.,Admin can approve.
+TC-041,Approve eMB - Owner,Owner,Open a submitted eMB -> Approve.,Owner can approve.
+TC-042,Multi-approver count,Admin,"On a task with 3 approvers, approve as one of them.","Shows ""1 of 3 approved""; stays pending until all required approve."
+TC-043,Reject / send back,Admin,Open a pending eMB -> Reject / mark for correction -> add a note.,Status changes to rejected; submitter is notified with the note.
+TC-044,Edit after approval [MUST BE BLOCKED],Site Engineer,Open an approved eMB -> try to edit the quantities.,Blocked - an approved eMB is locked for editing.
+TC-045,Sanctioned rate hidden [MUST BE BLOCKED],Site Engineer,Open an eMB and look at the sanctioned quantity/rate.,Engineer sees quantity but not the sanctioned sell-rate (margin must not leak).
+TC-046,Add purchase / stock,Site Engineer,"Site A -> Material -> Add purchase -> item, qty, vendor -> Save.",Stock increases by the quantity added.
+TC-047,Log usage,Site Engineer,Material -> Usage -> issue qty to a task -> Save.,Stock reduces; usage shows in the log.
+TC-048,Transfer / return / adjust,Site Engineer,"Do one transfer, one return and one adjustment.",Each records correctly and stock reflects it.
+TC-049,Set low-stock threshold,Site Engineer,Material -> item -> set low-stock level.,Threshold saves; alert fires when stock drops below it.
+TC-050,View stock levels,Admin,Open Site A -> Material.,Admin sees current stock across items.
+TC-051,Delete others' entry [MUST BE BLOCKED],Site Engineer,Try to delete a material entry created by someone else.,Blocked - Engineer can delete only their own entries.
+TC-052,Add machine,Site Engineer,Site A -> Machinery -> Add machine (owned or rented) -> Save.,Machine added to Site A.
+TC-053,Live session start/close,Site Engineer,Start a live usage session -> then close it.,Hours are logged from the session.
+TC-054,Fuel / bulk tanker entry,Site Engineer,Machinery -> add a fuel entry.,Fuel entry saved against the machine.
+TC-055,Maintenance threshold,Site Engineer,Set an hour-based maintenance threshold -> cross it.,Maintenance alert fires at the threshold.
+TC-056,End rental / convert,Admin,Rented machine -> end rental or convert to owned.,Status updates correctly. Engineer must NOT have this option.
+TC-057,Add labour / vendor,Site Engineer,Site A -> Labour -> add a worker and a labour-vendor.,Both are added to Site A.
+TC-058,Mark attendance + OT,Site Engineer,"Mark today's attendance, including overtime for one worker.",Attendance and OT recorded for the date.
+TC-059,Set wage / OT rates,Admin,Labour -> set wage and OT rates.,"Rates save. Check whether Engineer can also set them (per spec he can, site-scoped)."
+TC-060,Labour payment out,Site Engineer,Raise a labour payment.,Engineer can raise it; final money authority sits with Owner/Admin.
+TC-061,Record expense / bill,Admin,Expenses -> add a purchase/bill with GST -> Save.,Entry saved with correct totals.
+TC-062,Settle a bill,Admin,Open the bill -> settle / pay advance.,Settlement recorded against the party.
+TC-063,Edit financial entry,Admin,Edit an existing money entry.,Edit saves and is reflected in the ledger.
+TC-064,Delete financial entry,Owner,Delete a money entry.,Owner can delete. Check Engineer cannot delete others' entries.
+TC-065,View payments & costs,Admin,Open the ledger / job money view.,Admin sees all payments and costs across sites.
+TC-066,View profit / margin - Owner,Owner,Open the job's profit / margin view.,Owner sees profit and margin.
+TC-067,View profit / margin - Admin [MUST BE BLOCKED],Admin,Look for profit / margin anywhere in the job view.,Blocked - Admin sees costs and payments but never margin.
+TC-068,View money - Engineer,Site Engineer,Open the money view on Site A.,"Sees only Site A costs; no company margin, no other sites."
+TC-069,Create & edit party,Admin,Parties -> add a vendor and a client -> edit bank details.,Both save. Confirm parties do not consume a licence.
+TC-070,Record party payment,Admin,Record a payment in and a payment out.,Both recorded against the correct party.
+TC-071,View & export report,Admin,Reports -> open a report -> export to Excel/PDF.,Report opens and exports correctly.
+TC-072,Reports - Engineer scope,Site Engineer,Open Reports.,Sees Site A data only; no Site B or company-wide figures.
+TC-073,Open Site B - Engineer [MUST BE BLOCKED],Site Engineer,Sites -> try to open Site B.,Blocked - Site B is not visible at all.
+TC-074,Site B in reports [MUST BE BLOCKED],Site Engineer,Search reports/issues/dashboard for any Site B data.,Blocked - zero Site B data appears anywhere.
+TC-075,Open both sites - Admin,Admin,"Open Site A, then Site B.",Admin can open both.
+TC-076,Company room,Admin,Open BauChat -> company room -> post a message.,All internal members see the company room.
+TC-077,Site room scope,Site Engineer,Open BauChat -> look for site rooms.,"Engineer sees the Site A room only, not Site B's."
+TC-078,@tag someone,Admin,@tag the Engineer in the Site A room.,Engineer is notified. Tagging a non-member does not grant them read access.
+TC-079,Attachment,Site Engineer,Send a photo or bill in the Site A room.,Attachment uploads and opens for others in the room.
+TC-080,No DMs [MUST BE BLOCKED],Site Engineer,Look for a direct-message option.,No DMs in V1 - rooms only.
+TC-081,Company-wide alert rule,Owner,Alerts -> create a global alert rule.,Owner can create company-wide rules.
+TC-082,Site alert - Engineer,Site Engineer,Alerts -> create a task/eMB or low-stock alert for Site A.,Engineer can create alerts within Site A.
+TC-083,Global rule - Engineer [MUST BE BLOCKED],Site Engineer,Try to create a company-wide alert rule.,Blocked - global rules are Owner/Admin only.
+TC-084,Personal delivery settings,Site Engineer,Settings -> set quiet hours / daily digest / channels.,Every user controls their own delivery settings.
+TC-085,Raise & resolve issue,Site Engineer,Issues -> raise an issue on Site A -> then resolve it.,Raise and resolve both work within Site A scope.
