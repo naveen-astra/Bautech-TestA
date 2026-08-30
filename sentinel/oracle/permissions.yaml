@@ -1,0 +1,169 @@
+# Bautech role x action permission matrix.
+#
+# Source: "Bautech - The Complete Guide" (v4), section 4, "The full detail -
+# every action, every role". This is Navicon's own published specification.
+#
+# WHAT THIS IS FOR
+#   An *independent* expectation, separate from the Expected column of the test
+#   sheet. It is used to explain and cross-check verdicts, and to pick the
+#   control persona for a differential probe (to prove a Site Engineer cannot
+#   see a control, we need to know who legitimately can).
+#
+# WHAT THIS IS NOT
+#   It never sets a verdict. A verdict comes from what the device actually did.
+#   If this file and the observed behaviour disagree, that disagreement is the
+#   finding - it is reported, not resolved by trusting the document.
+#
+# GRANT VOCABULARY
+#   full        create/edit/delete within scope
+#   yes         allowed
+#   yes_plus    allowed, and additionally sees profit / margin
+#   view        read-only
+#   site        their assigned site(s) only
+#   own         only their own entries
+#   own_project their project only (external client)
+#   raise       may submit, may not finalise
+#   log         ground logging only
+#   stock       stock / low-stock only
+#   fin         money entries only
+#   del         delete permitted, narrower than full
+#   if_set      only when named as approver
+#   link        via external link only
+#   none        not available
+#
+# Anything other than `none` means the affordance should exist for that role.
+
+roles:
+  own: Owner / Super Admin
+  adm: Admin
+  mgr: Manager
+  acc: Accountant
+  eng: Site Engineer
+  mem: Site Member
+  cli: Client (external)
+  ext: External Approver (link)
+
+# Roles exercised by the current 85-case suite.
+tested_roles: [own, adm, eng]
+
+modules:
+
+  sites:
+    create_site:            {own: full, adm: full, mgr: none, acc: none, eng: none, mem: none, cli: none, ext: none}
+    edit_site_details:      {own: full, adm: full, mgr: site, acc: none, eng: site, mem: none, cli: none, ext: none}
+    assign_members_to_site: {own: full, adm: full, mgr: none, acc: none, eng: none, mem: none, cli: none, ext: none}
+    enable_disable_modules: {own: full, adm: full, mgr: none, acc: none, eng: none, mem: none, cli: none, ext: none}
+    archive_delete_site:    {own: full, adm: full, mgr: none, acc: none, eng: none, mem: none, cli: none, ext: none}
+    view_site:              {own: full, adm: full, mgr: full, acc: view, eng: site, mem: site, cli: own_project, ext: none}
+
+  tasks_emb:
+    create_task:            {own: full, adm: full, mgr: full, acc: none, eng: site, mem: none, cli: none, ext: none}
+    assign_task_owner:      {own: full, adm: full, mgr: full, acc: none, eng: site, mem: none, cli: none, ext: none}
+    add_progress_update:    {own: full, adm: full, mgr: full, acc: none, eng: site, mem: none, cli: none, ext: none}
+    create_submit_emb:      {own: full, adm: full, mgr: full, acc: none, eng: site, mem: none, cli: none, ext: none}
+    configure_emb_approval: {own: full, adm: full, mgr: full, acc: none, eng: own,  mem: none, cli: none, ext: none}
+    approve_emb_internal:   {own: yes,  adm: yes,  mgr: yes,  acc: none, eng: if_set, mem: none, cli: none, ext: none}
+    approve_emb_external:   {own: none, adm: none, mgr: none, acc: none, eng: none, mem: none, cli: link, ext: link}
+    reject_mark_correction: {own: yes,  adm: yes,  mgr: yes,  acc: none, eng: if_set, mem: none, cli: link, ext: link}
+    share_approval_link:    {own: full, adm: full, mgr: full, acc: none, eng: site, mem: none, cli: none, ext: none}
+    delete_task_emb_entry:  {own: full, adm: full, mgr: full, acc: none, eng: own,  mem: none, cli: none, ext: none}
+    # Sanctioned sell-rate is margin-bearing; see money.view_profit_margin.
+
+  material:
+    add_purchase_update_stock: {own: full, adm: full, mgr: full, acc: view, eng: site, mem: log,  cli: none, ext: none}
+    usage_transfer_return:     {own: full, adm: full, mgr: full, acc: view, eng: site, mem: log,  cli: none, ext: none}
+    add_material_vendor:       {own: full, adm: full, mgr: full, acc: full, eng: site, mem: none, cli: none, ext: none}
+    set_low_stock_threshold:   {own: full, adm: full, mgr: full, acc: none, eng: site, mem: stock, cli: none, ext: none}
+    view_stock_levels:         {own: full, adm: full, mgr: full, acc: view, eng: site, mem: site, cli: none, ext: none}
+    delete_material_entry:     {own: full, adm: full, mgr: full, acc: none, eng: own,  mem: none, cli: none, ext: none}
+
+  machinery:
+    add_machine:               {own: full, adm: full, mgr: full, acc: none, eng: site, mem: none, cli: none, ext: none}
+    log_usage_live_session:    {own: full, adm: full, mgr: full, acc: none, eng: site, mem: log,  cli: none, ext: none}
+    add_fuel_entry:            {own: full, adm: full, mgr: full, acc: none, eng: site, mem: log,  cli: none, ext: none}
+    assign_machine_to_site:    {own: full, adm: full, mgr: full, acc: none, eng: site, mem: none, cli: none, ext: none}
+    end_rental_convert_owned:  {own: full, adm: full, mgr: full, acc: none, eng: none, mem: none, cli: none, ext: none}
+    machinery_party_payment:   {own: full, adm: full, mgr: full, acc: full, eng: raise, mem: none, cli: none, ext: none}
+    log_maintenance_threshold: {own: full, adm: full, mgr: full, acc: none, eng: site, mem: log,  cli: none, ext: none}
+    delete_machine_entry:      {own: full, adm: full, mgr: full, acc: none, eng: own,  mem: none, cli: none, ext: none}
+
+  labour:
+    add_labour_or_vendor:      {own: full, adm: full, mgr: full, acc: none, eng: site, mem: log,  cli: none, ext: none}
+    mark_attendance_overtime:  {own: full, adm: full, mgr: full, acc: none, eng: site, mem: log,  cli: none, ext: none}
+    set_wage_ot_rates:         {own: full, adm: full, mgr: full, acc: full, eng: site, mem: none, cli: none, ext: none}
+    mark_active_inactive:      {own: full, adm: full, mgr: full, acc: none, eng: site, mem: none, cli: none, ext: none}
+    labour_payment_out:        {own: full, adm: full, mgr: full, acc: full, eng: raise, mem: none, cli: none, ext: none}
+    delete_days_record:        {own: full, adm: full, mgr: full, acc: none, eng: own,  mem: none, cli: none, ext: none}
+
+  money:
+    record_financial_entry:    {own: full, adm: full, mgr: full, acc: full, eng: raise, mem: none, cli: none, ext: none}
+    settle_bill_pay_advance:   {own: full, adm: full, mgr: full, acc: full, eng: raise, mem: none, cli: none, ext: none}
+    add_gst_discount_charges:  {own: full, adm: full, mgr: full, acc: full, eng: raise, mem: none, cli: none, ext: none}
+    bulk_invoice_generation:   {own: full, adm: full, mgr: full, acc: full, eng: none, mem: none, cli: none, ext: none}
+    edit_financial_entry:      {own: full, adm: full, mgr: full, acc: full, eng: own,  mem: none, cli: none, ext: none}
+    delete_financial_entry:    {own: full, adm: full, mgr: del,  acc: del,  eng: none, mem: none, cli: none, ext: none}
+    view_payments_costs:       {own: yes_plus, adm: full, mgr: full, acc: full, eng: site, mem: none, cli: own_project, ext: none}
+    view_profit_margin:        {own: yes,  adm: none, mgr: none, acc: none, eng: none, mem: none, cli: none, ext: none}
+
+  parties:
+    create_party:              {own: full, adm: full, mgr: full, acc: full, eng: site, mem: none, cli: none, ext: none}
+    edit_party_bank_details:   {own: full, adm: full, mgr: full, acc: full, eng: none, mem: none, cli: none, ext: none}
+    mark_party_active_inactive: {own: full, adm: full, mgr: full, acc: full, eng: none, mem: none, cli: none, ext: none}
+    record_party_payment:      {own: full, adm: full, mgr: full, acc: full, eng: raise, mem: none, cli: none, ext: none}
+    export_party_activity:     {own: full, adm: full, mgr: full, acc: full, eng: site, mem: none, cli: none, ext: none}
+    delete_party:              {own: full, adm: full, mgr: del,  acc: del,  eng: none, mem: none, cli: none, ext: none}
+
+  reports:
+    view_dashboards_reports:   {own: full, adm: full, mgr: full, acc: full, eng: site, mem: none, cli: own_project, ext: none}
+    export_reports:            {own: full, adm: full, mgr: full, acc: full, eng: site, mem: none, cli: own_project, ext: none}
+    approve_via_web:           {own: full, adm: full, mgr: full, acc: none, eng: if_set, mem: none, cli: none, ext: none}
+    export_company_data_json:  {own: full, adm: view, mgr: none, acc: none, eng: none, mem: none, cli: none, ext: none}
+
+  issues:
+    raise_create_issue:        {own: full, adm: full, mgr: full, acc: fin,  eng: site, mem: site, cli: own_project, ext: none}
+    resolve_close_issue:       {own: full, adm: full, mgr: full, acc: none, eng: site, mem: none, cli: none, ext: none}
+    view_global_issues:        {own: full, adm: full, mgr: full, acc: full, eng: site, mem: site, cli: own_project, ext: none}
+
+  chat:
+    read_post_company_room:    {own: yes,  adm: yes,  mgr: yes,  acc: yes,  eng: yes,  mem: yes,  cli: none, ext: none}
+    read_post_site_room:       {own: full, adm: full, mgr: full, acc: full, eng: site, mem: site, cli: none, ext: none}
+    tag_anyone_in_room:        {own: yes,  adm: yes,  mgr: yes,  acc: yes,  eng: yes,  mem: yes,  cli: none, ext: none}
+    direct_message:            {own: none, adm: none, mgr: none, acc: none, eng: none, mem: none, cli: none, ext: none}
+
+  alerts:
+    task_emb_alerts:           {own: full, adm: full, mgr: full, acc: none, eng: site, mem: none, cli: none, ext: none}
+    material_low_stock_alert:  {own: full, adm: full, mgr: full, acc: none, eng: site, mem: stock, cli: none, ext: none}
+    machinery_alerts:          {own: full, adm: full, mgr: full, acc: none, eng: site, mem: log,  cli: none, ext: none}
+    financial_threshold_alert: {own: full, adm: full, mgr: full, acc: full, eng: none, mem: none, cli: none, ext: none}
+    attendance_dpr_alerts:     {own: full, adm: full, mgr: full, acc: none, eng: site, mem: none, cli: none, ext: none}
+    custom_alert_builder:      {own: full, adm: full, mgr: full, acc: fin,  eng: site, mem: none, cli: none, ext: none}
+    set_global_alert_rule:     {own: full, adm: full, mgr: none, acc: none, eng: none, mem: none, cli: none, ext: none}
+    edit_delete_others_rules:  {own: full, adm: full, mgr: own,  acc: own,  eng: own,  mem: own,  cli: none, ext: none}
+    personal_delivery_settings: {own: yes,  adm: yes,  mgr: yes,  acc: yes,  eng: yes,  mem: yes,  cli: none, ext: none}
+
+  users:
+    invite_share_site_link:    {own: yes,  adm: yes,  mgr: yes,  acc: none, eng: yes,  mem: yes,  cli: none, ext: none}
+    approve_reject_join:       {own: yes,  adm: yes,  mgr: none, acc: none, eng: none, mem: none, cli: none, ext: none}
+    set_role_site_module:      {own: yes,  adm: yes,  mgr: none, acc: none, eng: none, mem: none, cli: none, ext: none}
+    edit_remove_member:        {own: yes,  adm: yes,  mgr: none, acc: none, eng: none, mem: none, cli: none, ext: none}
+    buy_add_remove_licences:   {own: yes,  adm: none, mgr: none, acc: none, eng: none, mem: none, cli: none, ext: none}
+    edit_owner_transfer:       {own: yes,  adm: none, mgr: none, acc: none, eng: none, mem: none, cli: none, ext: none}
+
+  company:
+    enable_modules_companywide: {own: yes,  adm: yes,  mgr: none, acc: none, eng: none, mem: none, cli: none, ext: none}
+    manage_app_data_cache:     {own: yes,  adm: yes,  mgr: none, acc: none, eng: none, mem: none, cli: none, ext: none}
+    billing_subscription:      {own: yes,  adm: none, mgr: none, acc: none, eng: none, mem: none, cli: none, ext: none}
+    create_delete_company:     {own: yes,  adm: none, mgr: none, acc: none, eng: none, mem: none, cli: none, ext: none}
+
+# The three controls the guide itself flags as carrying the risk. Worth calling
+# out in diagnosis: a permission failure here is a security finding, not a bug.
+high_risk_controls:
+  - module: tasks_emb
+    action: approve_emb_internal
+    why: A measurement must be approved before a payment against it counts.
+  - module: money
+    action: view_profit_margin
+    why: Owner-only. Everyone else sees costs and payments, never margin.
+  - module: money
+    action: delete_financial_entry
+    why: High-trust. This is where a ledger could be quietly changed.
