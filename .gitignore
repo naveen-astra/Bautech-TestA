@@ -1,0 +1,61 @@
+# ---------------------------------------------------------------------------
+# Secrets and machine-local config
+#
+# Nothing in this project stores a credential in a tracked file: personas.yaml
+# names environment variables, and run.py resolves them at render time. The
+# actual values live in .env, which stays local. Commit .env.example instead.
+# ---------------------------------------------------------------------------
+.env
+.env.*
+!.env.example
+
+# The app under test. APKs are large, are not ours to redistribute, and get
+# uploaded to BrowserStack from a local path.
+app/
+*.apk
+*.aab
+*.ipa
+
+# ---------------------------------------------------------------------------
+# Run artifacts - everything the pipeline generates
+# ---------------------------------------------------------------------------
+.plan_cache/
+flows/generated/
+results/
+maestro.log
+*.log
+.maestro/
+
+# ---------------------------------------------------------------------------
+# Python
+# ---------------------------------------------------------------------------
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+build/
+dist/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+
+# ---------------------------------------------------------------------------
+# Editors, tooling and OS noise
+# ---------------------------------------------------------------------------
+.vscode/
+.idea/
+*.iml
+*.swp
+*~
+.claude/settings.local.json
+.DS_Store
+Thumbs.db
+desktop.ini
