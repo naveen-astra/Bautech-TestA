@@ -134,6 +134,23 @@ the compiler cannot invent UI it has never seen. And an assertion declares the
 observations it consumes, so a missing observation is an automation failure by
 construction rather than by anyone remembering to check.
 
+### What a run leaves behind
+
+```
+.plan_cache/                    one plan per case, keyed on the row hash
+flows/generated/<run-id>/       the Maestro YAML actually executed
+results/<run-id>/
+  report.md                     every case, its verdict, and the evidence
+  report.html                   the same, for sending on
+  defects.md                    only the failures, written up for filing
+  results.json                  machine-readable, one object per case
+  console.log                   the raw device log, kept for disputes
+  TC-046-0-final.png            the screenshots the verdicts cite
+```
+
+All three are gitignored. A run is reproducible from the CSV, the screen map and
+the plan cache, so none of it is worth committing.
+
 ## Proving a negative
 
 Nineteen of the 85 cases assert that something must *not* happen. The trap is
