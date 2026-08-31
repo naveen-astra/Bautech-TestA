@@ -61,6 +61,66 @@ This split is not a preference. BrowserStack runs Maestro as an uploaded batch â
 you upload the app, upload zipped flows, start a build, and poll â€” so nothing can
 decide taps live on a cloud device. Everything has to be planned up front.
 
+## Architecture
+
+Nine stages. The model appears in exactly one of them, and everything
+downstream of it is arithmetic and string work.
+
+```mermaid
+flowchart TD
+    SHEET["tests/bautech_suite.csv<br/>85 cases, as the testers wrote them"]
+    PARSE["parser.py<br/>sheet to RawTestCase"]
+    COMPILE["compiler.py<br/>the only LLM step"]
+    CACHE[".plan_cache/<br/>keyed on a hash of the row"]
+    PROBE["probes.py<br/>attach the control persona"]
+    RENDER["renderer.py<br/>TestPlan to Maestro YAML"]
+    MAP["config/screen_map.yaml<br/>selectors, screens, forms"]
+    PERS["config/personas.yaml<br/>credentials from the environment"]
+    BACKEND{"backend"}
+    LOCAL["local.py<br/>Maestro CLI"]
+    BSTACK["browserstack.py<br/>upload, build, poll"]
+    OBS["observation.py<br/>@@OBS lines to ObservedValue"]
+    VERIFY["verifier.py<br/>deterministic assertion checking"]
+    ADJ["adjudicator.py<br/>the prohibition ladder"]
+    ORACLE["sentinel/oracle/<br/>role x action, from the spec"]
+    VERDICT["verdict.py<br/>PASS / FAIL / BLOCKED"]
+    REPORT["report.py<br/>report.md, report.html,<br/>defects.md, results.json"]
+
+    SHEET --> PARSE --> COMPILE
+    COMPILE <--> CACHE
+    COMPILE --> PROBE --> RENDER
+    MAP --> RENDER
+    PERS --> RENDER
+    RENDER --> BACKEND
+    BACKEND --> LOCAL
+    BACKEND --> BSTACK
+    LOCAL --> OBS
+    BSTACK --> OBS
+    OBS --> VERIFY --> VERDICT --> REPORT
+    VERIFY --> ADJ --> VERDICT
+    ORACLE --> ADJ
+
+    classDef llm fill:#fde68a,stroke:#b45309,color:#3f2d00
+    classDef data fill:#e0e7ff,stroke:#4338ca,color:#1e1b4b
+    classDef out fill:#dcfce7,stroke:#15803d,color:#052e16
+    class COMPILE llm
+    class SHEET,MAP,PERS,ORACLE,CACHE data
+    class REPORT out
+```
+
+| Stage | Module | Decided by | Output |
+|---|---|---|---|
+| parse | `parser.py` | code | `RawTestCase` per row, or a hard error |
+| compile | `compiler.py` | **LLM**, cached | `TestPlan`: segments, capability calls, assertions |
+| probe | `probes.py` | oracle lookup | the control half of each differential |
+| render | `renderer.py` | code | Maestro YAML, credentials passed as parameters |
+| execute | `backends/` | Maestro | `maestro.log`, screenshots |
+| observe | `observation.py` | code | `ObservedValue` per `@@OBS` line |
+| verify | `verifier.py` | code | one result per assertion |
+| adjudicate | `adjudicator.py` | code + oracle | prohibition upheld, or automation failure |
+| judge | `verdict.py` | code | `CaseResult` with evidence and failure class |
+| report | `report.py` | code, LLM for prose | four artifacts per run |
+
 ## Proving a negative
 
 Nineteen of the 85 cases assert that something must *not* happen. The trap is
