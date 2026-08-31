@@ -121,6 +121,19 @@ flowchart TD
 | judge | `verdict.py` | code | `CaseResult` with evidence and failure class |
 | report | `report.py` | code, LLM for prose | four artifacts per run |
 
+### The trust boundary
+
+The model is asked what a case *means* — which persona, which capabilities, what
+the Expected column is asserting. It is never asked whether a case passed. That
+question is settled by comparing recorded observations against declared
+assertions, which is why a re-run of an unchanged suite makes zero LLM calls and
+why an identical log always yields an identical verdict.
+
+Two structural consequences follow. A plan names intent and never a selector, so
+the compiler cannot invent UI it has never seen. And an assertion declares the
+observations it consumes, so a missing observation is an automation failure by
+construction rather than by anyone remembering to check.
+
 ## Proving a negative
 
 Nineteen of the 85 cases assert that something must *not* happen. The trap is
