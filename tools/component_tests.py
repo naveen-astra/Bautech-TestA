@@ -301,6 +301,47 @@ check("  and is classed as our failure",
       missing_control.failure_class.value, "automation_failure")
 
 
+# token_absent takes a different path to find its control persona (via the
+# screen a sweep step targets, not a `control` field - see
+# probes._spec_for_assertion). It was not exercised anywhere above, which is
+# exactly how the mechanism silently no-op'd for every "prove X is invisible"
+# case until tools/demo.py actually ran one end to end.
+def token_prohibition(case_id: str, persona: str, screen: str, token: str) -> TestPlan:
+    return TestPlan(
+        case_id=case_id, source_hash="h", title=case_id, primary_persona=persona,
+        segments=[Segment(persona=persona, intent="sweep", steps=[
+            Step(capability=Capability.NAVIGATE, target=screen),
+            Step(capability=Capability.CAPTURE_SCREEN_TEXT, target=screen,
+                 args={"tokens": token}, observation_key="sweep")])],
+        assertions=[Assertion(id="a", kind=AssertionKind.TOKEN_ABSENT,
+                              expected_text="must not appear", consumes=["sweep"],
+                              token=token)])
+
+
+token_augmented = augment(
+    token_prohibition("TC-073", "Site Engineer", "sites_list", "Site B"),
+    screen_map, ProbeReport())
+check("token_absent also gets a control segment", len(token_augmented.segments), 2)
+check("control persona resolved via the screen, not a `control` field",
+      token_augmented.segments[-1].persona, "Admin")
+check("the mirrored sweep targets the same screen",
+      token_augmented.segments[-1].steps[-1].target, "sites_list")
+check("its evidence is also mandatory",
+      token_augmented.assertions[0].consumes, ["sweep", "sweep__control"])
+
+# A screen with no spec mapping yet must be skipped honestly, not guessed at.
+# "emb" carries no spec in the screen map (TC-045's real module/action is not
+# confidently known yet - see config/screen_map.yaml).
+unspecced_report = ProbeReport()
+unspecced = augment(
+    token_prohibition("TC-045", "Site Engineer", "emb", "Sanctioned Rate"),
+    screen_map, unspecced_report)
+check("a screen with no spec mapping is skipped, not guessed at",
+      len(unspecced.segments), 1)
+check("  and the reason names the missing mapping",
+      "no spec mapping" in unspecced_report.skipped[0][2], True)
+
+
 # --------------------------------------------------------------------------- #
 print(f"\n{'=' * 60}")
 if _failures:
