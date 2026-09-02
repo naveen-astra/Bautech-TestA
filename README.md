@@ -7,8 +7,9 @@ BLOCKED with the evidence behind the call.
 
 ## Status
 
-**The whole pipeline is built and tested end to end. It has never touched a real
-device**, because no Bautech APK and no working login exist yet — see
+**The whole pipeline is built and tested end to end. It has driven a real
+phone as far as the login screen and no further** — not for want of automation,
+but because the app has no account to let it in. See
 [What is still needed](#what-is-still-needed).
 
 | Component | State |
@@ -23,9 +24,12 @@ device**, because no Bautech APK and no working login exist yet — see
 | Maestro renderer + observation protocol | done |
 | Verifier and negative-case adjudicator | done |
 | Verdict engine and reporting | done |
-| Local backend | done, never run against a device |
+| Local backend | done, run against a physical phone |
 | BrowserStack backend | written against the docs, **never exercised** |
 | `run.py` single command | done |
+| APK inspection (`tools/inspect_apk.py`) | done, run against v0.1.2 |
+| Login flow on real hardware | renders and executes; blocked at sign-in |
+| OTP relay (email fallback) | built and tested, never against a real mailbox |
 
 ### Prove it without a device
 
@@ -287,7 +291,9 @@ Three design rules are enforced by the code rather than by convention:
 
 Nothing device-facing can start until these arrive:
 
-1. **The Bautech APK.** Not present on this machine.
+1. ~~**The Bautech APK.**~~ Arrived 2026-09-02 and inspected —
+   `com.naviconinfra.bautech` v0.1.2, Flutter debug build. See
+   `docs/phase1_discovery.md`.
 2. **A login route that works unattended.** Auth is OTP-only — phone `+91` or
    email, plus Google; there is no password. This is the single biggest risk to
    the whole project, because an agent that cannot log itself in cannot run
@@ -302,10 +308,13 @@ A BrowserStack App Automate account is needed for Phase 7, not before.
 
 ## Honest limits
 
-- **Every screen-map selector is a guess.** `screen map: 0/41 targets verified`.
-  They were seeded from screenshots and the product guide, not from a running
-  build. The renderer refuses to emit a flow for an unverified target unless
-  `SENTINEL_ALLOW_UNVERIFIED=1`, so a run cannot quietly rest on a guess.
+- **Selector text is exact now; where it appears is still a guess.**
+  `screen map: 0/41 targets verified`. Most entries carry the app's own string
+  straight out of its localisation table rather than a screenshot reading, but a
+  string existing in the build says nothing about which screen shows it. Only a
+  hierarchy dump from a running build settles that, so nothing is `verified`
+  yet. The renderer refuses to emit a flow for an unverified target unless
+  `SENTINEL_ALLOW_UNVERIFIED=1`.
 - **The compiler has never been run against a live model.** It is tested against
   a stubbed client: schema flattening, caching, cache invalidation on reword,
   rejection of unknown targets, and the repair round-trip all work. Plan quality
@@ -314,11 +323,11 @@ A BrowserStack App Automate account is needed for Phase 7, not before.
   BrowserStack's documented Maestro API with no account to test it. Expect the
   log-retrieval path to need adjusting on first contact — and that path is what
   the cloud run's evidence depends on entirely.
-- **The screen map lint reports 11 unusable anchors.** Eleven screens are
-  anchored on the same text as the control that navigates to them, so the check
-  would pass whether or not the screen ever opened. Those anchors prove nothing
-  and must be replaced from a real hierarchy dump before any verdict on those
-  screens means anything. `run.py` prints them as warnings on every run.
+- **The screen map lint reports 2 unusable anchors**, down from 11. Those two
+  screens — `reports` and `issues` — are still anchored on the same text as the
+  control that navigates to them, so the check would pass whether or not the
+  screen ever opened. They prove nothing until replaced from a real hierarchy
+  dump. `run.py` prints them as warnings on every run.
 - **Some cases may be genuinely untestable** through the interfaces available.
   Billing changes that take effect next cycle (TC-027), pause/unpause billing
   (TC-028, TC-029), an hours threshold that has to be crossed (TC-055) and quiet
