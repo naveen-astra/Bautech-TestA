@@ -46,6 +46,35 @@ OBS_MARKER = "@@OBS"
 # Anything the flow reports about itself, rather than about the app.
 FLOW_MARKER = "@@FLOW"
 
+# Companion script for otp_mode: relay logins (see render_login below).
+# Maestro's JS sandbox has no sleep/timer, so this makes exactly one HTTP call
+# and trusts the relay server to hold the connection open until the code
+# arrives or its own timeout elapses (sentinel/otp_relay.py long-polls IMAP
+# internally for this reason). Keeping the polling entirely server-side is
+# what makes this reliable rather than a retry loop guessing at backoff.
+FETCH_OTP_JS = """\
+// Waits for a one-time code via sentinel/otp_relay.py. The relay itself
+// blocks until the code arrives or TIMEOUT_MS elapses, so this makes exactly
+// one request rather than polling from here.
+const url = RELAY_URL + '/otp?identifier=' + encodeURIComponent(IDENTIFIER)
+    + '&timeout_ms=' + TIMEOUT_MS;
+
+const response = http.get(url, { timeout: Number(TIMEOUT_MS) + 5000 });
+
+if (!response.ok) {
+    throw new Error('OTP relay returned ' + response.status + ': ' + response.body);
+}
+
+const data = json(response.body);
+if (!data.otp) {
+    throw new Error('OTP relay responded without a code: ' + response.body);
+}
+
+output.otp = data.otp;
+console.log('fetch_otp: received a code for ' + IDENTIFIER);
+"""
+
+
 class RenderError(Exception):
     """A plan could not be turned into a runnable flow."""
 
@@ -524,5 +553,17 @@ class FlowRenderer:
             path = out_dir / f"{plan.case_id}-{index}-{_slug(segment.persona)}.yaml"
             path.write_text(self.render_segment(plan, segment, index), encoding="utf-8")
             written.append(path)
+
+        # runScript resolves its file relative to the flow, so any relay login
+        # needs its own copy alongside the flows that reference it. Cheap and
+        # idempotent - writing it whether or not this plan actually uses relay
+        # mode is simpler than tracking usage, and a stray copy costs nothing.
+        default_mode = self.personas.get("defaults", {}).get("otp_mode", "fixed")
+        if any(
+            self.personas.get("personas", {}).get(p, {}).get("otp_mode", default_mode)
+            == "relay"
+            for p in plan.personas
+        ):
+            (out_dir / "fetch_otp.js").write_text(FETCH_OTP_JS, encoding="utf-8")
 
         return written
