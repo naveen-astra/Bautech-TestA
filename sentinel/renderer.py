@@ -46,7 +46,6 @@ OBS_MARKER = "@@OBS"
 # Anything the flow reports about itself, rather than about the app.
 FLOW_MARKER = "@@FLOW"
 
-
 class RenderError(Exception):
     """A plan could not be turned into a runnable flow."""
 
@@ -79,6 +78,14 @@ def _emit_obs(**fields: Any) -> dict[str, Any]:
 def _js(value: str) -> str:
     """A Python string used as a JS string literal inside an evalScript."""
     return json.dumps(value)
+
+
+def _unverified_email_field() -> dict[str, Any]:
+    raise RenderError(
+        "login_method: email has no confirmed field selector yet - only the phone "
+        "field has been verified against a real device (see docs/phase1_discovery.md). "
+        "Run maestro hierarchy on the Email tab and update render_login before using it."
+    )
 
 
 class FlowRenderer:
@@ -407,10 +414,35 @@ class FlowRenderer:
 
         mode = config.get("otp_mode", defaults.get("otp_mode", "fixed"))
         identifier = "${" + config["identifier_env"] + "}"
+        by_phone = config.get("login_method", "phone") == "phone"
 
         commands: list[dict[str, Any]] = [
-            {"tapOn": "Phone" if config.get("login_method", "phone") == "phone" else "Email"},
+            # Confirmed against a real device: this tab's actual accessibility
+            # text is "Phone\nTab 1 of 2" - Flutter merges the tab-position
+            # hint into the label for this segmented-control widget. Maestro's
+            # text selector requires a full match, so the bare word alone
+            # matches nothing; ".*" either side absorbs the merged text.
+            {"tapOn": {"text": ".*Phone.*" if by_phone else ".*Email.*"}},
+            # Selecting the Phone/Email tab does not focus the input field
+            # beneath it - confirmed against a real device, where inputText
+            # sent with nothing focused typed into empty air and the flow
+            # silently stayed on this screen. The field is a bare Flutter
+            # EditText with no resource-id, so its hint text (visible only
+            # while empty, which it always is at this point) is what Maestro
+            # can actually tap on. Phone's hint is confirmed against a real
+            # device; email's is not - login_method: email is untested, and
+            # reusing the "Email" tab label here would hit this exact bug
+            # again rather than fix it, so this raises instead of guessing.
+            {"tapOn": "Enter 10-digit number"} if by_phone else _unverified_email_field(),
             {"inputText": identifier},
+            # Confirmed against a real device: entering text opens the soft
+            # keyboard, which covers "Send OTP" at the bottom of the screen.
+            # tapOn resolves through the accessibility tree, not pixels, so it
+            # reported success while the physical touch actually landed on
+            # the keyboard underneath - the flow silently never left this
+            # screen. Dismissing the keyboard first is what actually reveals
+            # the button to tap.
+            "hideKeyboard",
             {"tapOn": "Send OTP"},
         ]
 
@@ -433,6 +465,7 @@ class FlowRenderer:
         else:
             raise RenderError(f"unknown otp_mode {mode!r} for persona {persona!r}")
 
+        commands.append("hideKeyboard")
         commands.append({"tapOn": "Verify"})
         commands.append(
             {"extendedWaitUntil": {"visible": _selector(self.screen_map.anchor("home")),
@@ -491,4 +524,5 @@ class FlowRenderer:
             path = out_dir / f"{plan.case_id}-{index}-{_slug(segment.persona)}.yaml"
             path.write_text(self.render_segment(plan, segment, index), encoding="utf-8")
             written.append(path)
+
         return written
