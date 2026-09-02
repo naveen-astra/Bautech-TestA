@@ -1,0 +1,48 @@
+{
+  "apk": "app-debug.apk",
+  "size_bytes": 232862056,
+  "manifest": {
+    "package": "com.naviconinfra.bautech",
+    "version_name": "0.1.2",
+    "version_code": "11",
+    "min_sdk": "24",
+    "target_sdk": "35",
+    "permissions": [
+      "android.permission.ACCESS_COARSE_LOCATION",
+      "android.permission.ACCESS_FINE_LOCATION",
+      "android.permission.ACCESS_NETWORK_STATE",
+      "android.permission.CAMERA",
+      "android.permission.INTERNET",
+      "android.permission.POST_NOTIFICATIONS",
+      "android.permission.READ_CONTACTS",
+      "android.permission.READ_EXTERNAL_STORAGE",
+      "android.permission.RECEIVE_BOOT_COMPLETED",
+      "android.permission.VIBRATE",
+      "android.permission.WAKE_LOCK",
+      "com.google.android.c2dm.permission.RECEIVE",
+      "com.google.android.providers.gsf.permission.READ_GSERVICES",
+      "com.naviconinfra.bautech.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION"
+    ]
+  },
+  "firebase": {
+    "project_id": "navicon-erp",
+    "google_app_id": "1:1070926937647:android:307b0a9bafa618850690da",
+    "google_api_key": "<redacted - read it from the APK if needed>",
+    "gcm_defaultSenderId": "1070926937647",
+    "google_storage_bucket": "navicon-erp.firebasestorage.app"
+  },
+  "structure": {
+    "entries": 713,
+    "is_flutter": true,
+    "flutter_mode": "debug (JIT)",
+    "abis": [
+      "arm64-v8a",
+      "armeabi-v7a",
+      "x86_64"
+    ],
+    "emulator_friendly": true,
+    "uses_firebase": true,
+    "firebase_auth": true
+  },
+  "label_count": 6779
+}
