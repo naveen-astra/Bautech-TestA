@@ -81,6 +81,10 @@ screens:
     anchor: {text: "Site name, code or address"}
     source: apk_string   # key: sitesHomeSearchHint
     verified: false
+    # Governs "prove Site B is invisible" (TC-073/074): who is allowed to see
+    # site data at all, for the differential probe on token_absent assertions
+    # swept from this screen.
+    spec: {module: sites, action: view_site}
 
   site_home:
     anchor: {text: "Modules"}
@@ -92,6 +96,7 @@ screens:
     anchor: {text: "Inventory Management"}
     source: apk_string   # key: inventoryTitle
     verified: false
+    spec: {module: material, action: view_stock_levels}
 
   machinery:
     anchor: {text: "Machinery Status"}
@@ -129,11 +134,13 @@ screens:
     anchor: {text: "Reports"}
     source: apk_string
     verified: false
+    spec: {module: reports, action: view_dashboards_reports}
 
   chat:
     anchor: {text: "Chats"}
     source: screenshot
     verified: false
+    spec: {module: chat, action: read_post_site_room}
 
   notifications:
     anchor: {text: "Notifications"}
