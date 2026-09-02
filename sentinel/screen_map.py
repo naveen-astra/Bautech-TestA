@@ -164,6 +164,19 @@ class ScreenMap:
         module, action = spec.get("module"), spec.get("action")
         return (module, action) if module and action else None
 
+    def spec_for_screen(self, name: str) -> tuple[str, str] | None:
+        """The (module, action) that governs *viewing* this screen's data.
+
+        Used for token_absent prohibitions ("Site B must appear nowhere"),
+        where the thing being probed is not a tappable control but a screen's
+        whole content. A screen only has this if `spec:` was added to its
+        entry in screen_map.yaml - most do not yet, which is reported
+        honestly by the caller rather than guessed at.
+        """
+        spec = self._fetch(self.screens, "screen", name).get("spec") or {}
+        module, action = spec.get("module"), spec.get("action")
+        return (module, action) if module and action else None
+
     @property
     def refusal_markers(self) -> list[str]:
         return [str(m).lower() for m in (self._data.get("refusal_markers") or [])]
