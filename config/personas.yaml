@@ -23,6 +23,14 @@
 #
 # Until one of these is confirmed working against the real app, nothing runs
 # unattended. See README, "What is still needed".
+#
+# CONFIRMED FROM app-debug.apk (2026-09-02, tools/inspect_apk.py):
+#   - Firebase project is "navicon-erp" - this is the console to register test
+#     numbers in (Authentication -> Sign-in method -> Phone -> Phone numbers
+#     for testing).
+#   - The login screen's Phone/Email/OTP flow strings all match what the
+#     renderer already sends: "Phone", "Email", "Send OTP", "Verify".
+#   - No fixed-OTP numbers are registered yet - that is still Navicon's step.
 # ---------------------------------------------------------------------------
 
 defaults:
