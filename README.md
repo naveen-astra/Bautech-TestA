@@ -243,9 +243,11 @@ sentinel/
   oracle/                 role x action permission matrix from the spec
 tools/
   extract_suite.py        rebuild the CSV from the Word sheet
+  inspect_apk.py           extract package info + UI vocabulary from a build
   selftest.py             prove the judging is sound
   component_tests.py      prove bad input is refused
   roundtrip.py            drive the whole pipeline without a device
+  otp_relay_tests.py      prove the OTP relay works without a real mailbox
 ```
 
 ### How observations get home
