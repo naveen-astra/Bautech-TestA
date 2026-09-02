@@ -49,19 +49,56 @@ class ProbeReport:
         )
 
 
+def _spec_for_assertion(
+    assertion: Assertion, plan: TestPlan, screen_map: ScreenMap
+) -> tuple[tuple[str, str] | None, str]:
+    """The (module, action) governing this prohibition, and how we found it.
+
+    control_absent names a specific tappable control directly. token_absent
+    does not - what is being probed is a whole screen's content, so the spec
+    comes from the screen the sweep step targets instead. Getting this branch
+    wrong is exactly how the mechanism silently no-ops: with no case matching
+    a prohibition kind, `_control_persona_for` used to require `assertion.
+    control` unconditionally, which token_absent assertions never set, so the
+    differential probe was quietly skipped for every "prove X is invisible"
+    case - the most safety-critical kind in the suite - without a single test
+    catching it.
+    """
+    if assertion.kind is AssertionKind.CONTROL_ABSENT:
+        if not assertion.control:
+            return None, "assertion names no control to probe"
+        spec = screen_map.spec_for_control(assertion.control)
+        if spec is None:
+            return None, (
+                f"control {assertion.control!r} has no spec mapping in the screen map"
+            )
+        return spec, f"control {assertion.control!r}"
+
+    if assertion.kind is AssertionKind.TOKEN_ABSENT:
+        origin = _producing_step(plan, assertion.consumes[0])
+        if origin is None:
+            return None, "no step produces the observation this assertion consumes"
+        screen = screen_map.screen_of(origin.target)
+        if screen is None:
+            return None, f"target {origin.target!r} does not resolve to a screen"
+        spec = screen_map.spec_for_screen(screen)
+        if spec is None:
+            return None, (
+                f"screen {screen!r} has no spec mapping in the screen map yet, so we do "
+                "not know who is permitted to view its content"
+            )
+        return spec, f"screen {screen!r}"
+
+    return None, f"{assertion.kind} does not use a differential probe"
+
+
 def _control_persona_for(
     assertion: Assertion, plan: TestPlan, screen_map: ScreenMap
 ) -> tuple[str | None, str]:
     """Who should legitimately succeed here, and why we think so."""
-    if not assertion.control:
-        return None, "assertion names no control to probe"
-
-    spec = screen_map.spec_for_control(assertion.control)
+    spec, source = _spec_for_assertion(assertion, plan, screen_map)
     if spec is None:
-        return None, (
-            f"control {assertion.control!r} has no spec mapping in the screen map, so we "
-            "cannot look up who is permitted"
-        )
+        return None, source
 
     module, action = spec
     try:
@@ -74,7 +111,7 @@ def _control_persona_for(
             f"the spec grants {module}.{action} to no other persona we can sign in as, "
             "so the selector cannot be validated by comparison"
         )
-    return persona, f"{module}.{action} is granted to {persona}"
+    return persona, f"{module}.{action} ({source}) is granted to {persona}"
 
 
 def _producing_step(plan: TestPlan, key: str) -> Step | None:
