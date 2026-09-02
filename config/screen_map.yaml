@@ -6,26 +6,40 @@
 # does. It is also what stops the LLM inventing selectors it cannot know.
 #
 # ---------------------------------------------------------------------------
-# STATUS: UNVERIFIED
+# STATUS: GROUNDED BUT UNVERIFIED
 #
-# Every entry below is a hypothesis. Nothing here has been checked against a
-# running build, because no Bautech APK was available when this was written.
-# The seeded entries come from two sources, both marked per-entry:
+# app-debug.apk arrived on 2026-09-02 and was inspected with
+# tools/inspect_apk.py (see config/apk_report.json). That confirmed the package
+# id, that the app is Flutter, and - most usefully - it recovered the app's
+# entire English localisation table (config/app_labels.json, 6779 strings),
+# because a debug build embeds the generated l10n class as source, with the
+# English text sitting in doc comments above each getter:
 #
-#   screenshot  - read off a real screen capture (drawer, auth, notifications)
-#   guide       - a module or label named in "Bautech - The Complete Guide"
-#   assumed     - a plausible guess, unconfirmed
+#     /// In en, this message translates to:
+#     /// **'Add Site'**
+#     String get homeScreenAddSiteTitle;
 #
-# Phase 1 replaces every `source: assumed` with a selector read from
-# `maestro hierarchy`, and flips `verified: true`. The renderer refuses to emit
-# a flow for an unverified target unless SENTINEL_ALLOW_UNVERIFIED=1, so a run
-# cannot quietly depend on a guess.
+# That upgrades most entries below from a screenshot guess to an exact string
+# straight out of the build - `source: apk_string`. It does NOT tell us which
+# screen shows which string; that a label exists says nothing about where it
+# appears. So `verified` still means one thing only: confirmed against a
+# running build via `maestro hierarchy`, and every entry below is still
+# `verified: false` until that happens. The renderer still refuses to emit a
+# flow for an unverified target unless SENTINEL_ALLOW_UNVERIFIED=1.
+#
+# Sources:
+#   apk_string  exact text pulled from this build's localisation table
+#   screenshot  read off a real screen capture (drawer, auth, notifications)
+#   guide       a module or label named in "Bautech - The Complete Guide"
+#   assumed     a plausible guess, unconfirmed by any of the above
 # ---------------------------------------------------------------------------
 
 meta:
-  app_id: null              # Phase 1: adb shell pm list packages | grep -i bau
+  app_id: com.naviconinfra.bautech   # confirmed: tools/inspect_apk.py
   platform: android
-  ui_toolkit: flutter       # assumed; confirm via `maestro hierarchy` shape
+  ui_toolkit: flutter                # confirmed: libflutter.so + kernel_blob.bin present
+  build: app-debug.apk v0.1.2 (code 11), debug/JIT, abis arm64-v8a+armeabi-v7a+x86_64
+  firebase_project: navicon-erp       # confirmed: compiled resources
   verified: false
 
 # Flutter exposes text and Semantics identifiers, never widget Keys. Prefer an
@@ -41,12 +55,12 @@ screens:
 
   login:
     anchor: {text: "Welcome Back"}
-    source: screenshot
+    source: apk_string   # key: homeWelcomeBack (also confirms the screenshot)
     verified: false
 
   otp_entry:
-    anchor: {text: "Verify OTP"}
-    source: assumed
+    anchor: {text: "OTP Verification"}
+    source: apk_string   # key: authOtpVerificationTitle
     verified: false
 
   home:
@@ -61,8 +75,11 @@ screens:
     opened_by: {id: "hamburger", text: "Menu"}
 
   sites_list:
-    anchor: {text: "Sites"}
-    source: guide
+    # Was anchored on "Sites" - identical to the nav item that opens it, so it
+    # could not tell "the screen opened" from "the nav bar is still on screen".
+    # This is the search-bar placeholder, unique to this screen.
+    anchor: {text: "Site name, code or address"}
+    source: apk_string   # key: sitesHomeSearchHint
     verified: false
 
   site_home:
@@ -71,43 +88,46 @@ screens:
     verified: false
 
   material:
-    anchor: {text: "Material"}
-    source: guide
+    # Was "Material" - same text as the nav tap. Real screen title instead.
+    anchor: {text: "Inventory Management"}
+    source: apk_string   # key: inventoryTitle
     verified: false
 
   machinery:
-    anchor: {text: "Machinery"}
-    source: guide
+    anchor: {text: "Machinery Status"}
+    source: apk_string   # key: machineryStatusTitle
     verified: false
 
   labour:
-    anchor: {text: "Labour"}
-    source: guide
+    anchor: {text: "Labour Management"}
+    source: apk_string   # key: labourManagementTitle
     verified: false
 
   tasks:
-    anchor: {text: "Tasks"}
-    source: guide
+    anchor: {text: "Tasks Overview"}
+    source: apk_string   # key: tasksOverview
     verified: false
 
   emb:
-    anchor: {text: "eMB"}
-    source: guide
+    anchor: {text: "Pending eMBs"}
+    source: apk_string   # key: embPendingTab; eMB lives under Tasks, not its own nav item
     verified: false
 
   expenses:
-    anchor: {text: "Expenses"}
-    source: guide
+    anchor: {text: "Expenses Dashboard"}
+    source: apk_string   # key: expensesDashboard
     verified: false
 
   parties:
-    anchor: {text: "Parties"}
-    source: guide
+    anchor: {text: "Party Management"}
+    source: apk_string   # key: partyManagementTitle
     verified: false
 
   reports:
+    # "Reports" alone repeats the l10n key explorerReportsTitle AND the nav
+    # label - kept only as a fallback fact, not yet grounded as distinct.
     anchor: {text: "Reports"}
-    source: guide
+    source: apk_string
     verified: false
 
   chat:
@@ -121,33 +141,47 @@ screens:
     verified: false
 
   alerts:
+    # DISCREPANCY: the screenshot (photo_2026-08-26_19-55-12.jpg) shows a tab
+    # labelled "My Alerts (2)", but that exact string is not in this build's
+    # localisation table at all - only "Alerts", "All Alerts", "Total Alerts"
+    # etc exist. Likely the screenshot is from an older or newer version than
+    # app-debug.apk v0.1.2. Left as the screenshot text for now; confirm the
+    # real tab label with `maestro hierarchy` rather than trusting either
+    # source blindly.
     anchor: {text: "My Alerts"}
     source: screenshot
     verified: false
 
   issues:
+    # STILL WEAK: issuesScreenTitle is 'Issues', same as the nav tap. The only
+    # other issues-prefixed strings are the empty-state ("No Open Issues"),
+    # which will not be on screen once test data exists - not a safe anchor
+    # either. Needs a real hierarchy dump to find something that is always
+    # there (a filter chip, a header row) rather than picking a guess here.
     anchor: {text: "Issues"}
-    source: guide
+    source: apk_string   # key: issuesScreenTitle - confirmed text, weak anchor
     verified: false
 
   invite_manage_users:
-    anchor: {text: "Invite & Manage Users"}
-    source: screenshot
+    # Was "Invite & Manage Users" - same text as the drawer item that opens
+    # it. This subtitle only appears once the screen itself has rendered.
+    anchor: {text: "A quick summary of your team and sites"}
+    source: apk_string   # key: inviteDashboardOverviewSubtitle
     verified: false
 
   billing:
-    anchor: {text: "Billing & Payment"}
-    source: screenshot
+    anchor: {text: "Manage your plan, seats, and payment method"}
+    source: apk_string   # key: explorerGsBillingPaymentSubtitle
     verified: false
 
   my_licence:
     anchor: {text: "My Licence"}
-    source: screenshot
+    source: apk_string   # key: myLicenceTitle (confirms the screenshot)
     verified: false
 
   settings:
     anchor: {text: "Settings"}
-    source: screenshot
+    source: apk_string   # key: settingsTitle
     verified: false
 
 # ---------------------------------------------------------------------------
@@ -189,6 +223,15 @@ navigation:
 controls:
 
   add_site_button:
+    # AMBIGUOUS: three different confirmed strings could be this button, likely
+    # at different points of the flow rather than one being simply wrong -
+    #   "Add Site"    homeScreenAddSiteTitle (possibly the empty-state CTA)
+    #   "New Site"    explorerSitesNewSite / sitesHomeTapNewSite hint text
+    #                 ('Tap "+ New Site" to add one.' - suggests a FAB, not this)
+    #   "Create Site" siteCreateButton / siteCreateSite (the create-form submit)
+    # Guessing which applies to *this* control - the tap on the Sites list that
+    # opens the create flow - would defeat the purpose of flagging it. Confirm
+    # with `maestro hierarchy` on the Sites screen before trusting this.
     screen: sites_list
     selector: {text: "Add Site"}
     spec: {module: sites, action: create_site}
@@ -350,12 +393,35 @@ entities:
 # that lands on one of these is evidence of a deliberate block rather than an
 # automation stall.
 # ---------------------------------------------------------------------------
+# Confirmed against app-debug.apk's localisation table (config/app_labels.json)
+# rather than guessed. These are the app's own words for a refusal, found by
+# sweeping all 6779 strings for permission/access/restriction language:
+#
+#   errAuthNoPermission              "You don't have permission to perform this action."
+#   errDbNoPermissionChange          "You don't have permission to change this. Contact
+#                                      your site admin if you think you should."
+#   errorPermission                  "Permission denied"
+#   errorUnauthorized                "Unauthorized access"
+#   machineryVendorsAccessRestricted "Access Restricted: Vendors tab is not accessible
+#                                      for site members."
+#   reportsMembersNotAllowedAccess   "Members are not allowed access to the report
+#                                      module."
+#
+# The generic guesses below are kept as a fallback for refusal text these six
+# do not cover, but the app-sourced strings above are what the enforcement rung
+# should actually match on first.
 refusal_markers:
+  - "you don't have permission"
+  - "you do not have permission"
+  - "permission denied"
+  - "unauthorized access"
+  - "unauthorised access"
+  - "access restricted"
+  - "not allowed access"
   - "not authorised"
   - "not authorized"
-  - "permission denied"
   - "access denied"
-  - "you do not have permission"
   - "not allowed"
   - "restricted"
   - "contact your admin"
+  - "contact your site admin"
