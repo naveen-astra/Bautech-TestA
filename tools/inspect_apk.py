@@ -178,6 +178,24 @@ def vocabulary(apk: Path) -> dict[str, str]:
     return labels
 
 
+# Firebase's own config, lifted out of the build. It is not a secret in the
+# Firebase sense - anyone holding the APK can read it, and access is governed
+# by security rules rather than by the key staying hidden - but it is still
+# Navicon's key, and apk_report.json is committed. Writing it to a tracked file
+# would put it in git history permanently and trip GitHub's secret scanning, so
+# the report keeps the shape of the finding and drops the value.
+REDACTED_FIELDS = ("google_api_key",)
+
+
+def redacted(report: dict) -> dict:
+    """The report as written to disk, with Firebase's key removed."""
+    out = {**report, "firebase": dict(report.get("firebase") or {})}
+    for field in REDACTED_FIELDS:
+        if out["firebase"].get(field):
+            out["firebase"][field] = "<redacted - read it from the APK if needed>"
+    return out
+
+
 def main() -> int:
     if len(sys.argv) != 2:
         print(__doc__)
@@ -233,7 +251,7 @@ def main() -> int:
               "(a release build strips the localisation source)")
 
     summary = ROOT / "config" / "apk_report.json"
-    summary.write_text(json.dumps(report, indent=2), encoding="utf-8")
+    summary.write_text(json.dumps(redacted(report), indent=2), encoding="utf-8")
     print(f"\nfull report -> {summary.relative_to(ROOT)}")
     return 0
 
