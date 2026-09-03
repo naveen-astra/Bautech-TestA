@@ -324,6 +324,123 @@ authenticate into.
 | 16-19 | BrowserStack build receipt / execution / artifact retrieval | Not started - Phase 7 |
 | 20 | Whether 85 cases fit in 2 hours | Still a projection; needs one real per-case timing to become real |
 
+## Pushing further with the live session: real module coverage
+
+While the account session stayed live, went past the home screen to see how
+far the same patterns hold. Two genuinely new things came out of it:
+
+**The site-detail screen's module tiles (Reports, Expenses, Machinery,
+Materials, Tasks, Labour) are each their own clean, unmerged accessibility
+node** - unlike every navigation widget confirmed so far (login tabs, the
+bottom nav), these do *not* merge a position hint into their label. Real,
+useful contrast: the merging problem is specific to certain widget patterns
+in this app, not a blanket property of every tappable element. `site_home`
+and the six module routes are now verified against a real hierarchy dump, and
+one real correction came out of it: the `material` route was guessed as
+`"Material"` (singular); the real tile reads `"Materials"` (plural).
+
+**The `material` screen's own title is `"Material Management"`, not
+`"Inventory Management"`** as an earlier `apk_string`-sourced guess had it.
+The guess was not fabricated - "Inventory Management" is real text on that
+screen - it is a sub-header above the "+ Add Entry" button, not the screen's
+own title. A string existing in the build says nothing about *where* it
+appears; this is exactly why the verification gate exists.
+
+Given the now three-times-confirmed merging pattern (login tabs, bottom nav,
+site-list cards), generalised the fix rather than patching each occurrence:
+`_selector()`, the one function every rendered text selector already funnels
+through, now wraps a bare `{"text": ...}` spec in a fuzzy match by default.
+A fuzzy match costs nothing on the labels that turn out clean - `".*Reports.*"`
+still fully matches a node whose text is only `"Reports"` - so this is the
+safe default everywhere, not a targeted patch. All 117 checks (see below)
+stayed green through the change.
+
+## Bounded retries: the Phase 6 gap that had zero external dependency
+
+Built `sentinel/junit.py` and wired a retry loop into `run.py`
+(`--max-retries`, default 1). The one property that actually matters was
+built to be checkable independently of the code reading correctly: a case
+whose flow *crashed* before finishing is eligible for one bounded re-run;
+a case whose flow *completed* and observed a real FAIL is never touched
+again, because the retry mechanism only ever looks at JUnit-level
+completion, never the verdict - it has no code path by which a FAIL could
+influence whether a retry happens. `tools/retry_tests.py` checks this
+directly against a real JUnit report shape (cross-checked against the
+one Maestro actually produced during today's live runs), not merely assumed
+from reading the implementation.
+
+A case that only completes on a retry now says so in its own report entry -
+"this verdict is from retry N" - rather than looking identical to a clean
+first pass, which is what stops a retry from quietly becoming a way to hide
+flakiness.
+
+**Check count is now 117** (31 + 58 + 19 + 9), up from 102 at the start of
+this pass - all against the same anti-false-positive guarantee: no
+configuration of missing or broken evidence produces a PASS.
+
+## A real write, and a real unresolved question
+
+Pushed past read-only verification to prove the actual create-and-verify-delta
+pattern the whole system exists to demonstrate - not read a value, but write
+one and watch it move. Real, careful steps: created a clearly-labelled test
+item (`SNTL-cement-live01`, matching the project's own run-scoped naming
+convention rather than touching real inventory), entered a real quantity of
+100 via the real "Manage Stock -> Adjust" form, watched the app's own live
+"Updated Stock" preview correctly compute `0 + 100 = 100`, and saved.
+
+**The write did not persist.** Checked immediately after, and again after
+forcing a genuine fresh server sync ("Synced just now", not a cached read):
+the new item never appeared, Total Items stayed at 1, the Activity log never
+recorded it. A **"1 conflict"** badge was present throughout and is not
+tappable for detail.
+
+Two explanations are equally plausible from the evidence available, and this
+is reported as genuinely unresolved rather than picking one:
+
+1. **A real sync/write bug** - the app accepted the form, showed no error,
+   and silently failed to persist behind a vague conflict indicator.
+2. **A collision with concurrent real use** - this account (company "RBAC
+   Testing and Bauchat") is not a private sandbox. Aqua Line's own progress
+   changed from 100%/Completed to 13%/Ongoing between two screenshots taken
+   minutes apart today, with nothing done here to cause it - someone else,
+   almost certainly Navicon's own QA team, is actively using this exact
+   account concurrently.
+
+Stopped here rather than keep experimenting on a live shared account without
+understanding the conflict mechanism. **Worth asking Navicon directly:** what
+does "1 conflict" mean in Material Management, and should test isolation
+assume this account is exclusively ours, or shared? If writes can silently
+fail behind an unresolved conflict, that is a real reliability question for
+all 85 cases, not just this one - and the honest verdict for this specific
+attempt is BLOCKED, not a fabricated PASS or an unfounded defect claim.
+
+## Further real screen coverage
+
+Continued past Materials with read-only navigation (deliberately no more
+writes, given the finding above):
+
+- **Tasks and eMB are not separate screens.** Both are tabs - "Tasks
+  Dashboard" / "eMB Dashboard", each a clean unmerged node - on one screen
+  genuinely titled **"Progress Management"**, not the guessed "Tasks
+  Overview". `emb`'s own apk_string-sourced guess ("eMB lives under Tasks,
+  not its own nav item") had the right structural idea; the specific anchor
+  text just was not confirmable, because there is no separate screen to
+  anchor. Both `tasks` and `emb` screen entries now point at the same real,
+  verified anchor - the screen-map lint correctly flags this as a shared
+  anchor, and that flag is accurate: they are the same physical screen.
+- The screen's real stat blocks ("Overall Progress 13%, 1 completed, 2
+  tasks", "Schedule Status: On Track") are merged into one large
+  accessibility node, consistent with the pattern found everywhere else in
+  this app - handled automatically by the fuzzy-match default, no special
+  case needed.
+
+**Screen map is now 4/41 verified** (`site_home`, `material`, `tasks`,
+`emb`), up from 2. One test (`component_tests.py`, the "no spec mapping"
+guard) broke as a direct, expected consequence of `emb` gaining a real spec -
+fixed by moving that test to `machinery`, which still has none, with a note
+explaining why the fixture needed to move rather than silently changing what
+it proves. **Check count holds at 117, all still green.**
+
 ## Immediate next steps, in order
 
 1. **Ask Navicon whether the three test-number accounts actually exist yet.**
