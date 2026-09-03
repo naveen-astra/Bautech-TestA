@@ -38,6 +38,7 @@ import yaml
 from sentinel import probes
 from sentinel.backends.base import BackendError, RunArtifacts
 from sentinel.compiler import CompilerError, PlanCompiler
+from sentinel.junit import failed_case_ids
 from sentinel.observation import collect, find_evidence, flow_boundaries
 from sentinel.parser import SheetError, load_suite
 from sentinel.renderer import FlowRenderer, RenderError
@@ -46,6 +47,8 @@ from sentinel.schema import CaseResult, FailureClass, Feasibility, RawTestCase, 
 from sentinel.screen_map import ScreenMap
 from sentinel.verdict import blocked_case, decide, summarise
 from sentinel.verifier import verify
+
+DEFAULT_MAX_RETRIES = 1
 
 ROOT = Path(__file__).resolve().parent
 
@@ -155,9 +158,11 @@ def judge(
     boundaries: dict[str, str],
     screen_map: ScreenMap,
     results_dir: Path,
+    retry_attempt_of: dict[str, int] | None = None,
 ) -> list[CaseResult]:
     """Turn observations into one verdict per plan."""
     results: list[CaseResult] = []
+    retry_attempt_of = retry_attempt_of or {}
 
     for plan in plans:
         evidence = find_evidence(results_dir, plan.case_id) or ["log:console.log"]
@@ -181,9 +186,113 @@ def judge(
                     ).strip()
                 }
             )
+
+        # Surfaced in the report itself, not just the console - a verdict
+        # that only came together on a retry is a materially different claim
+        # than one that worked cleanly the first time, and a reviewer should
+        # be able to see that without re-reading the run's console output.
+        attempt = retry_attempt_of.get(plan.case_id, 0)
+        if attempt > 0:
+            result = result.model_copy(
+                update={
+                    "probable_cause": (
+                        result.probable_cause
+                        + f" This verdict is from retry {attempt}: the flow's first "
+                        "attempt crashed before producing a result, and a bounded "
+                        "retry re-ran it from scratch. The observations above are "
+                        "from the retry, not the original attempt."
+                    ).strip()
+                }
+            )
         results.append(result)
 
     return results
+
+
+def execute_with_bounded_retries(
+    backend,
+    plans: list[TestPlan],
+    renderer: FlowRenderer,
+    flow_dir: Path,
+    results_dir: Path,
+    env: dict[str, str],
+    timeout_seconds: int,
+    max_retries: int,
+) -> tuple[RunArtifacts, dict[str, int]]:
+    """Run every flow; re-run only the ones whose flow itself never finished.
+
+    A case that completed and reported a real FAIL is never touched again -
+    that observation is the finding, and retrying it would be exactly the
+    "retries must not mask a defect" failure mode the plan explicitly rules
+    out. Only a case whose flow crashed or errored out before producing a
+    verdict - the JUnit-level signal, entirely separate from what it observed
+    - is eligible, and only up to `max_retries` times.
+
+    Returns the merged artifacts (logs from every attempt, so a case that
+    only succeeded on retry N still has its observations counted) and a map
+    of case_id -> which attempt it finally completed on, 0 meaning the first
+    try - the transparency the plan asks retries to carry, rather than
+    silently reporting a retried case identically to a clean first pass.
+    """
+    plans_by_id = {p.case_id: p for p in plans}
+    attempt_of: dict[str, int] = {p.case_id: 0 for p in plans}
+
+    artifacts = backend.run(flow_dir, results_dir, env, timeout_seconds)
+    all_logs = list(artifacts.logs)
+    all_screenshots = list(artifacts.screenshots)
+    all_notes = list(artifacts.notes)
+
+    junit = artifacts.junit or (results_dir / "report.xml")
+    pending = failed_case_ids(junit) & plans_by_id.keys()
+
+    for attempt in range(1, max_retries + 1):
+        if not pending:
+            break
+        _log(f"  retry {attempt}/{max_retries}: re-running {len(pending)} case(s) "
+             f"whose flow did not finish: {', '.join(sorted(pending))}")
+
+        retry_flow_dir = flow_dir / f"retry-{attempt}"
+        retry_results_dir = results_dir / f"retry-{attempt}"
+        for case_id in pending:
+            renderer.render_plan(plans_by_id[case_id], retry_flow_dir)
+
+        try:
+            retry_artifacts = backend.run(
+                retry_flow_dir, retry_results_dir, env, timeout_seconds
+            )
+        except BackendError as exc:
+            _log(f"  retry {attempt} failed to execute at all: {exc}")
+            break
+
+        # Appended, not replacing: a case that crashed on try 1 produced
+        # incomplete or no observations, and the retry's logs are what
+        # supply the real ones when this is parsed - collect() lets later
+        # entries for the same key win, which is exactly what is wanted here.
+        all_logs += retry_artifacts.logs
+        all_screenshots += retry_artifacts.screenshots
+        all_notes += retry_artifacts.notes
+
+        retry_junit = retry_artifacts.junit or (retry_results_dir / "report.xml")
+        still_failing = failed_case_ids(retry_junit) & pending
+        resolved = pending - still_failing
+        for case_id in resolved:
+            attempt_of[case_id] = attempt
+        pending = still_failing
+
+    if pending:
+        _log(f"  {len(pending)} case(s) never completed after {max_retries} "
+             f"retr{'y' if max_retries == 1 else 'ies'}: {', '.join(sorted(pending))}")
+
+    merged = RunArtifacts(
+        logs=all_logs,
+        screenshots=all_screenshots,
+        junit=artifacts.junit,
+        session_urls=artifacts.session_urls,
+        exit_code=artifacts.exit_code,
+        duration_seconds=artifacts.duration_seconds,
+        notes=all_notes,
+    )
+    return merged, attempt_of
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -197,6 +306,12 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--model", default="claude-sonnet-5")
     parser.add_argument("--dry-run", action="store_true", help="plan and render, run nothing")
     parser.add_argument("--timeout", type=int, default=1800, help="seconds for the whole run")
+    parser.add_argument(
+        "--max-retries", type=int, default=DEFAULT_MAX_RETRIES,
+        help="times to re-run a case whose flow crashed before finishing "
+             "(never a case that finished and reported FAIL - that is a real "
+             "observation, not a flake)",
+    )
     args = parser.parse_args(argv)
     load_dotenv()
 
@@ -271,10 +386,18 @@ def main(argv: list[str] | None = None) -> int:
 
     _log(f"  executing on {backend.name}...")
     try:
-        artifacts = backend.run(flow_dir, results_dir, persona_env(personas), args.timeout)
+        artifacts, retry_attempt_of = execute_with_bounded_retries(
+            backend, plans, renderer, flow_dir, results_dir,
+            persona_env(personas), args.timeout, args.max_retries,
+        )
     except BackendError as exc:
         _log(f"execution failed: {exc}")
         return 2
+
+    retried = {cid: n for cid, n in retry_attempt_of.items() if n > 0}
+    if retried:
+        _log(f"  {len(retried)} case(s) needed a retry to complete: "
+             + ", ".join(f"{cid} (try {n})" for cid, n in sorted(retried.items())))
 
     _log(f"  finished in {artifacts.duration_seconds:.0f}s (exit {artifacts.exit_code})")
     for url in artifacts.session_urls:
@@ -299,7 +422,9 @@ def main(argv: list[str] | None = None) -> int:
     boundaries = flow_boundaries(log_text)
 
     # -- judge and report -------------------------------------------------- #
-    results = judge(plans, observations, boundaries, screen_map, results_dir) + blocked
+    results = judge(
+        plans, observations, boundaries, screen_map, results_dir, retry_attempt_of
+    ) + blocked
     counts = summarise(results)
 
     meta = {
