@@ -86,11 +86,17 @@ def _slug(text: str) -> str:
 def _selector(spec: dict[str, Any]) -> Any:
     """Screen-map selector -> Maestro selector.
 
-    A single `text` key becomes a bare string, which is what Maestro flows
-    normally use and what a human will expect to read.
+    A single `text` key is fuzzy-matched by default (see `_fuzzy_text`) rather
+    than passed through as an exact-match bare string. Confirmed against a
+    real device three separate times - a login tab, the bottom nav, a site
+    list card - that this app's custom widgets merge several pieces of text
+    into one accessibility node, which an exact match cannot see into. A
+    fuzzy match costs nothing on the many labels that turn out to be clean
+    (".*Reports.*" still fully matches a node whose text is only "Reports"),
+    so this is the safe default everywhere, not a targeted patch.
     """
     if set(spec) == {"text"}:
-        return spec["text"]
+        return _fuzzy_text(spec["text"])
     return dict(spec)
 
 
@@ -107,6 +113,23 @@ def _emit_obs(**fields: Any) -> dict[str, Any]:
 def _js(value: str) -> str:
     """A Python string used as a JS string literal inside an evalScript."""
     return json.dumps(value)
+
+
+def _fuzzy_text(text: str) -> dict[str, str]:
+    """A selector that finds `text` even merged into a longer accessibility
+    string.
+
+    Confirmed against a real device twice now, in two different widgets: a
+    segmented-control tab whose real label was "Phone\\nTab 1 of 2", and a
+    site-list card whose real label was the whole card's content run
+    together ("Aqua Line\\nMumbai\\n100%\\n...Total expense: ₹74,113").
+    Flutter merges adjacent Semantics nodes into one accessibility string for
+    custom widgets like these, and Maestro's text selector requires a full
+    match - so a bare literal, correct as it looks, matches nothing. Two
+    independent occurrences make this the rule for this app's custom
+    widgets, not a one-off quirk to special-case.
+    """
+    return {"text": ".*" + re.escape(text) + ".*"}
 
 
 def _unverified_email_field() -> dict[str, Any]:
@@ -161,6 +184,17 @@ class FlowRenderer:
         self._anchored = screen
         anchor = _selector(self.screen_map.anchor(screen))
         return [
+            # Confirmed against a real device: a screen resuming from the
+            # background (launchApp on an already-running app) is not
+            # necessarily redrawn yet by the time the very next command
+            # runs. The plain visibility check below is a single instant
+            # look with no retry, so it can report false on a screen that
+            # is genuinely there a moment later - proven directly, where
+            # the anchor read false here and the identical text was then
+            # found by a sweep a few steps on. This wait absorbs that
+            # settle time; it is optional so a truly missing anchor still
+            # falls through to be recorded as false, not aborted.
+            {"extendedWaitUntil": {"visible": anchor, "timeout": 6000, "optional": True}},
             {"evalScript": "${output.anchor = false}"},
             {
                 "runFlow": {
@@ -189,7 +223,7 @@ class FlowRenderer:
                 if opener:
                     commands.append({"tapOn": _selector(opener)})
             for label in route.get("taps", []):
-                commands.append({"tapOn": label})
+                commands.append({"tapOn": _fuzzy_text(label)})
         else:
             commands.append({"tapOn": _selector(self.screen_map.anchor(screen))})
         # We just moved, so whatever we last confirmed no longer holds.
@@ -255,15 +289,22 @@ class FlowRenderer:
             commands += [
                 {
                     "scrollUntilVisible": {
-                        "element": {"text": resolved},
+                        "element": _fuzzy_text(resolved),
                         "direction": "DOWN",
                         "timeout": 4000,
+                        # A token this sweep is looking for is often
+                        # genuinely absent - that is the whole point of a
+                        # prohibition check - so failing to scroll to it
+                        # must not abort the flow. `optional` has to sit
+                        # inside the command's own block, not beside it, or
+                        # Maestro rejects the flow as malformed before a
+                        # single step runs.
+                        "optional": True,
                     },
-                    "optional": True,
                 },
                 {
                     "runFlow": {
-                        "when": {"visible": resolved},
+                        "when": {"visible": _fuzzy_text(resolved)},
                         "commands": [
                             {"evalScript": "${output.seen.push(" + _js(resolved) + ")}"}
                         ],
@@ -412,7 +453,13 @@ class FlowRenderer:
             case Capability.REJECT:
                 commands = self._render_simple_tap(step, "Reject")
             case Capability.OPEN_ENTITY:
-                commands = [{"tapOn": self._substitute(step.args.get("name", step.target))}]
+                # Not directly confirmed whether a list card's name sits in
+                # its own accessibility node or is merged into the whole
+                # card's text (list cards showed this merging pattern
+                # elsewhere in this app) - fuzzy by default rather than an
+                # unverified exact-match guess either way.
+                name = self._substitute(step.args.get("name", step.target))
+                commands = [{"tapOn": _fuzzy_text(str(name))}]
             case Capability.EDIT_ENTITY | Capability.DELETE_ENTITY:
                 commands = self._render_simple_tap(step, "Edit")
             case Capability.LOGIN:
