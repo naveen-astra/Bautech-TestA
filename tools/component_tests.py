@@ -330,16 +330,84 @@ check("its evidence is also mandatory",
       token_augmented.assertions[0].consumes, ["sweep", "sweep__control"])
 
 # A screen with no spec mapping yet must be skipped honestly, not guessed at.
-# "emb" carries no spec in the screen map (TC-045's real module/action is not
-# confidently known yet - see config/screen_map.yaml).
+# "machinery" still carries none as of this writing - see config/
+# screen_map.yaml. ("emb" used to be the example here; it gained a real,
+# device-confirmed spec mapping and stopped being a valid case for "no
+# mapping exists", which is exactly the kind of drift a fixed screen name
+# invites - worth remembering if this starts failing again.)
 unspecced_report = ProbeReport()
 unspecced = augment(
-    token_prohibition("TC-045", "Site Engineer", "emb", "Sanctioned Rate"),
+    token_prohibition("TC-056", "Site Engineer", "machinery", "Rental"),
     screen_map, unspecced_report)
 check("a screen with no spec mapping is skipped, not guessed at",
       len(unspecced.segments), 1)
 check("  and the reason names the missing mapping",
       "no spec mapping" in unspecced_report.skipped[0][2], True)
+
+
+section("JUnit failure parsing (what bounded retries key off)")
+
+from sentinel.junit import failed_case_ids  # noqa: E402
+
+
+def write_junit(xml: str) -> str:
+    path = ROOT / "flows" / "generated" / "_test_junit.xml"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(xml, encoding="utf-8")
+    return str(path)
+
+
+ALL_PASS = """<?xml version='1.0'?>
+<testsuites><testsuite name="s" tests="2" failures="0">
+  <testcase id="TC-046-0" name="TC-046" classname="sentinel.owner" status="SUCCESS">
+    <properties><property name="testCaseId" value="TC-046"/></properties>
+  </testcase>
+  <testcase id="TC-009-0" name="TC-009" classname="sentinel.owner" status="SUCCESS">
+    <properties><property name="testCaseId" value="TC-009"/></properties>
+  </testcase>
+</testsuite></testsuites>"""
+check("all-success report has no failed cases", failed_case_ids(write_junit(ALL_PASS)), set())
+
+ONE_CRASHED = """<?xml version='1.0'?>
+<testsuites><testsuite name="s" tests="2" failures="1">
+  <testcase id="TC-046-0" name="TC-046" classname="sentinel.owner" status="SUCCESS">
+    <properties><property name="testCaseId" value="TC-046"/></properties>
+  </testcase>
+  <testcase id="TC-009-0" name="TC-009" classname="sentinel.owner" status="ERROR">
+    <properties><property name="testCaseId" value="TC-009"/></properties>
+    <failure message="Element not found: Text matching regex: Send OTP"/>
+  </testcase>
+</testsuite></testsuites>"""
+check("a crashed flow's case id is picked up", failed_case_ids(write_junit(ONE_CRASHED)), {"TC-009"})
+
+MULTI_SEGMENT = """<?xml version='1.0'?>
+<testsuites><testsuite name="s" tests="2" failures="1">
+  <testcase id="TC-073-0" name="TC-073 [0]" classname="sentinel.site-engineer" status="SUCCESS">
+    <properties><property name="testCaseId" value="TC-073"/></properties>
+  </testcase>
+  <testcase id="TC-073-1" name="TC-073 [1]" classname="sentinel.admin" status="FAILURE">
+    <properties><property name="testCaseId" value="TC-073"/></properties>
+    <failure message="timeout"/>
+  </testcase>
+</testsuite></testsuites>"""
+check("one failed segment fails the whole case (cross-persona plans share a case id)",
+      failed_case_ids(write_junit(MULTI_SEGMENT)), {"TC-073"})
+
+check("a missing report is treated as no failures, not an error",
+      failed_case_ids(ROOT / "flows" / "generated" / "_does_not_exist.xml"), set())
+
+rejects("malformed XML is refused rather than silently ignored",
+        lambda: failed_case_ids(write_junit("not xml at all <<<")), Exception)
+
+# Against the actual JUnit report a real device run produced today - the one
+# piece of real evidence this parser can be checked against directly.
+real_report = ROOT / "results" / "live_demo" / "report.xml"
+if real_report.exists():
+    real_failed = failed_case_ids(real_report)
+    check("real device report (LIVE-01, passed) has no failed cases",
+          "LIVE-01" not in real_failed, True)
+else:
+    print("  skip  no real device report on disk to check against")
 
 
 # --------------------------------------------------------------------------- #
