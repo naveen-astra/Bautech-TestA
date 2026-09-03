@@ -7,10 +7,11 @@ BLOCKED with the evidence behind the call.
 
 ## Status
 
-**The whole pipeline is built and tested end to end. It has driven a real
-phone as far as the login screen and no further** — not for want of automation,
-but because the app has no account to let it in. See
-[What is still needed](#what-is-still-needed).
+**The whole pipeline is built, tested, and has driven a real logged-in
+account on real hardware — repeatedly, with the same correct result every
+time.** A Samsung Galaxy A22 running the unmodified build, real Firebase test
+credentials, a real Bautech company with real sites and real expense
+figures. See [What is still needed](#what-is-still-needed) for what's left.
 
 | Component | State |
 |---|---|
@@ -18,25 +19,54 @@ but because the app has no account to let it in. See
 | Sheet parser | done |
 | Plan schema and invariants | done |
 | Permission oracle (role x action) | done |
-| Screen map loader, lint, verification gate | done, **0/41 targets verified** |
+| Screen map loader, lint, verification gate | done, **4/41 targets verified against real hardware** |
 | Plan compiler (LLM, cached) | done, not yet run against a live model |
 | Differential probe generation | done |
-| Maestro renderer + observation protocol | done |
+| Maestro renderer + observation protocol | done, hardened by real-device failures (see below) |
 | Verifier and negative-case adjudicator | done |
 | Verdict engine and reporting | done |
-| Local backend | done, run against a physical phone |
+| Bounded retries (`sentinel/junit.py`) | done - re-runs a crashed flow, never a real observed FAIL |
+| Local backend | done, proven against a physical phone, 3 consecutive identical runs |
 | BrowserStack backend | written against the docs, **never exercised** |
-| `run.py` single command | done |
+| `run.py` single command | done, now with `--max-retries` |
 | APK inspection (`tools/inspect_apk.py`) | done, run against v0.1.2 |
-| Login flow on real hardware | renders and executes; blocked at sign-in |
+| Login flow on real hardware | **done** - logs in, lands on real data, repeatably |
 | OTP relay (email fallback) | built and tested, never against a real mailbox |
+
+### What real hardware taught the renderer
+
+Every one of these was found by reading an actual failure - a screenshot or a
+hierarchy dump off the phone - never guessed at, and each is now a standing
+rule in `sentinel/renderer.py`, not a one-off patch:
+
+- **Flutter merges a whole widget's text into one accessibility node** on
+  custom components - a tab's real label was `"Phone\nTab 1 of 2"`, a site
+  card's was its entire visible content run together. Confirmed three
+  separate times, in three different widgets. Every text selector the
+  renderer emits is now fuzzy-matched by default (`_selector`, `_fuzzy_text`)
+  because of this - an exact match cannot see into a merged string, and a
+  fuzzy match costs nothing on the labels that turn out to be clean.
+- **The on-screen keyboard covers buttons at the bottom of the screen.**
+  Maestro's tap resolves through the accessibility tree, not pixels, so it
+  reports success while the real touch lands on the keyboard. Fixed with an
+  explicit `hideKeyboard` before every button tap that follows text entry.
+- **A reachability check right after resuming an app has no patience.** The
+  very first anchor check can fire before the screen has redrawn, reporting
+  false for text that is genuinely there moments later - proven directly,
+  since a later step found the identical text. Every anchor check now waits
+  before it judges (`extendedWaitUntil`, then the capture).
+- **A real phone locks its screen mid-run; an emulator never does.**
+  `adb shell svc power stayon` is now a standing part of the real-device
+  setup checklist, not a one-off fix.
 
 ### Prove it without a device
 
 ```bash
 python tools/selftest.py         # 31 checks: the judging is sound
-python tools/component_tests.py  # 46 checks: bad input is refused
+python tools/component_tests.py  # 58 checks: bad input is refused
 python tools/roundtrip.py        # the full pipeline, three app behaviours
+python tools/otp_relay_tests.py  # 19 checks: the email-OTP fallback works
+python tools/retry_tests.py      # 9 checks: retries recover crashes, never mask a defect
 python run.py --dry-run          # plan and render the real suite, run nothing
 ```
 
@@ -243,15 +273,20 @@ sentinel/
   adjudicator.py          the prohibition ladder
   verdict.py              assertion results -> PASS / FAIL / BLOCKED
   report.py               report.md, report.html, defects.md, results.json
+  junit.py                reads a JUnit report back for testCaseId -> failed
   backends/               local (Maestro CLI) and browserstack (batch API)
   oracle/                 role x action permission matrix from the spec
 tools/
   extract_suite.py        rebuild the CSV from the Word sheet
   inspect_apk.py           extract package info + UI vocabulary from a build
   selftest.py             prove the judging is sound
-  component_tests.py      prove bad input is refused
+  component_tests.py      prove bad input is refused (58 checks)
   roundtrip.py            drive the whole pipeline without a device
   otp_relay_tests.py      prove the OTP relay works without a real mailbox
+  retry_tests.py          prove retries recover crashes, never mask a defect
+  demo.py                 narrated walkthrough, simulated device
+  demo_login.py           the real login flow against a real device
+  demo_live.py            the full pipeline against a real logged-in account
 ```
 
 ### How observations get home
@@ -289,31 +324,40 @@ Three design rules are enforced by the code rather than by convention:
 
 ## What is still needed
 
-Nothing device-facing can start until these arrive:
-
 1. ~~**The Bautech APK.**~~ Arrived 2026-09-02 and inspected —
    `com.naviconinfra.bautech` v0.1.2, Flutter debug build. See
    `docs/phase1_discovery.md`.
-2. **A login route that works unattended.** Auth is OTP-only — phone `+91` or
-   email, plus Google; there is no password. This is the single biggest risk to
-   the whole project, because an agent that cannot log itself in cannot run
-   anything unattended. The clean fix is Firebase test phone numbers with fixed
-   OTP codes, which needs one config change from Navicon. The fallback, which
-   needs nothing from them, is a small relay that polls an IMAP mailbox and
-   serves the code over HTTP for Maestro's built-in `http.get` to fetch mid-flow.
-3. **Three test accounts** (Owner / Admin / Site Engineer) in a dedicated test
-   company, with Site A and Site B already distinct.
+2. ~~**A login route that works unattended.**~~ Solved. Firebase test phone
+   numbers arrived, and — the real lesson here — a Firebase test number is not
+   by itself a Bautech account; the first attempts failed with the app's own
+   `"No account found with this number. Please sign up first."` Once real
+   accounts existed behind the numbers, the login flow (built against this
+   exact failure mode) worked, and has now run to completion three times in a
+   row with identical results.
+3. **A dedicated test company with Site A and Site B distinct**, and accounts
+   for all three personas (Owner confirmed working; Admin and Site Engineer
+   not yet exercised end-to-end). The one account verified so far belongs to a
+   company called "RBAC Testing and Bauchat" with real sites already in it —
+   worth confirming with Navicon whether this is the intended long-term test
+   company or a placeholder.
+4. **Coverage beyond the home, Materials and Progress Management screens.**
+   Four screens are verified against real hardware; the suite eventually
+   needs the other three dozen or so a full 85-case run touches.
 
 A BrowserStack App Automate account is needed for Phase 7, not before.
 
 ## Honest limits
 
-- **Selector text is exact now; where it appears is still a guess.**
-  `screen map: 0/41 targets verified`. Most entries carry the app's own string
-  straight out of its localisation table rather than a screenshot reading, but a
-  string existing in the build says nothing about which screen shows it. Only a
-  hierarchy dump from a running build settles that, so nothing is `verified`
-  yet. The renderer refuses to emit a flow for an unverified target unless
+- **Most of the screen map is still a guess.** `screen map: 4/41 targets
+  verified` — `site_home`, `material`, `tasks` and `emb`, all confirmed
+  against real hierarchy dumps, with two corrections along the way: the
+  `material` screen's real title turned out to be "Material Management", not
+  the "Inventory Management" string a guess had matched from the build's
+  localisation table (a real string, just the wrong one — a sub-header, not
+  the title); and `tasks`/`emb` turned out to be two tabs on one screen
+  genuinely titled "Progress Management", not the guessed "Tasks Overview".
+  The other ~37 entries still carry an unconfirmed string. The renderer
+  refuses to emit a flow for an unverified target unless
   `SENTINEL_ALLOW_UNVERIFIED=1`.
 - **The compiler has never been run against a live model.** It is tested against
   a stubbed client: schema flattening, caching, cache invalidation on reword,
