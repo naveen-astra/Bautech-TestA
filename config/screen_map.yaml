@@ -87,15 +87,29 @@ screens:
     spec: {module: sites, action: view_site}
 
   site_home:
-    anchor: {text: "Modules"}
-    source: guide
-    verified: false
+    # Confirmed against a real device (Aqua Line, 2026-09-03). "Modules" alone
+    # was a guess and does not appear as its own node at all - the real UI
+    # says "Active Modules (N)" merged into a much larger blob (see the note
+    # on quick_actions_and_activity below). "Manage Modules" is a clean,
+    # separately-clickable button present regardless of which site this is,
+    # which is what makes it usable as an anchor - a site's own name is data,
+    # not UI chrome, and cannot be a stable anchor across different sites.
+    anchor: {text: "Manage Modules"}
+    source: real_device
+    verified: true
+    spec: {module: sites, action: view_site}
 
   material:
-    # Was "Material" - same text as the nav tap. Real screen title instead.
-    anchor: {text: "Inventory Management"}
-    source: apk_string   # key: inventoryTitle
-    verified: false
+    # Confirmed against a real device, 2026-09-03. The apk_string guess
+    # ("Inventory Management", key inventoryTitle) turned out to be real text
+    # on this screen too - it is a sub-header above the "+ Add Entry" button,
+    # not the screen's own title. The actual top-of-screen title, and the
+    # one used as the anchor, is "Material Management". Both are clean,
+    # unmerged nodes; only the title is stable enough to be an anchor, since
+    # a sub-header could plausibly move or reword independent of the screen.
+    anchor: {text: "Material Management"}
+    source: real_device
+    verified: true
     spec: {module: material, action: view_stock_levels}
 
   machinery:
@@ -109,14 +123,31 @@ screens:
     verified: false
 
   tasks:
-    anchor: {text: "Tasks Overview"}
-    source: apk_string   # key: tasksOverview
-    verified: false
+    # Confirmed against a real device, 2026-09-03. Real title is "Progress
+    # Management", not the guessed "Tasks Overview" - that string was never
+    # found on screen at all. The title sits inside a large merged block
+    # (progress %, schedule status, and the title all one accessibility
+    # node), which the default fuzzy match already handles without change.
+    anchor: {text: "Progress Management"}
+    source: real_device
+    verified: true
+    spec: {module: tasks_emb, action: create_task}
 
   emb:
-    anchor: {text: "Pending eMBs"}
-    source: apk_string   # key: embPendingTab; eMB lives under Tasks, not its own nav item
-    verified: false
+    # Confirmed: this is not a separate screen. "Tasks" and "eMB" are two
+    # tabs - "Tasks Dashboard" / "eMB Dashboard", both clean unmerged nodes -
+    # on the one Progress Management screen. The apk_string guess ("eMB
+    # lives under Tasks, not its own nav item") had the right idea; the
+    # specific anchor text was not confirmed and turned out unnecessary,
+    # since there is no separate screen to anchor. Reached by tapping the
+    # "eMB Dashboard" tab from `tasks`, not by independent navigation - the
+    # `emb` screen entry stays distinct here for whichever capability needs
+    # to target eMB content specifically, but any route to it should go
+    # through `tasks` first.
+    anchor: {text: "Progress Management"}
+    source: real_device
+    verified: true
+    spec: {module: tasks_emb, action: create_submit_emb}
 
   expenses:
     anchor: {text: "Expenses Dashboard"}
@@ -209,13 +240,19 @@ navigation:
 
   routes:
     sites_list:   {from: home, taps: ["Sites"], source: assumed}
-    material:     {from: site_home, taps: ["Material"], source: assumed}
-    machinery:    {from: site_home, taps: ["Machinery"], source: assumed}
-    labour:       {from: site_home, taps: ["Labour"], source: assumed}
-    tasks:        {from: site_home, taps: ["Tasks"], source: assumed}
-    expenses:     {from: site_home, taps: ["Expenses"], source: assumed}
+    # Confirmed against a real device (Aqua Line's module grid, 2026-09-03):
+    # each of these six is its own clean, unmerged accessibility node - no
+    # position hint merged in, unlike the tab bars elsewhere in this app.
+    # "material" was previously guessed singular ("Material"); the real tile
+    # reads "Materials" (plural) - a genuine correction, not just a
+    # confirmation.
+    material:     {from: site_home, taps: ["Materials"], source: real_device}
+    machinery:    {from: site_home, taps: ["Machinery"], source: real_device}
+    labour:       {from: site_home, taps: ["Labour"], source: real_device}
+    tasks:        {from: site_home, taps: ["Tasks"], source: real_device}
+    expenses:     {from: site_home, taps: ["Expenses"], source: real_device}
+    reports:      {from: site_home, taps: ["Reports"], source: real_device}
     parties:      {from: site_home, taps: ["Parties"], source: assumed}
-    reports:      {from: site_home, taps: ["Reports"], source: assumed}
     issues:       {from: site_home, taps: ["Issues"], source: assumed}
     billing:      {from: home, via_drawer: true, taps: ["Billing & Payment"], source: screenshot}
     invite_manage_users:
@@ -316,10 +353,22 @@ controls:
 values:
 
   stock_level:
+    # The old selector {id: "stock_value"} was never viable - confirmed
+    # repeatedly against real hardware this session that Flutter widgets in
+    # this app expose no resource-id at all, on any screen. What IS confirmed
+    # real: "Stock Value" (a clean standalone label node) sits directly above
+    # its number ("?800" in the raw accessibility string - the device mangles
+    # the rupee symbol; Maestro's own text matching handled the real symbol
+    # correctly elsewhere, so this is likely a non-issue for a real run, not
+    # re-verified here). A relative selector (Maestro's `below:`) is the
+    # right tool for reading a value beside a label with no id, but the
+    # syntax itself has not been executed against this screen yet - the
+    # nodes are confirmed, the read mechanism is not, so this stays
+    # unverified rather than overclaiming.
     screen: material
-    selector: {id: "stock_value"}
+    selector: {below: {text: "Stock Value"}}
     kind: numeric
-    source: assumed
+    source: real_device
     verified: false
 
   monthly_bill_total:
