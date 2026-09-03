@@ -27,6 +27,18 @@ class LocalBackend:
         self.maestro = maestro
         self.device = device
 
+    def _resolve_maestro(self) -> str:
+        """The actual path to invoke, not just the bare command name.
+
+        On Windows, `maestro` is a `.bat` wrapper, and CreateProcess (what
+        subprocess.run uses without shell=True) does not apply PATHEXT
+        resolution the way a shell does - `subprocess.run(["maestro", ...])`
+        fails with WinError 2 even though `shutil.which("maestro")` finds it
+        fine. Resolving here once means the caller never has to know.
+        """
+        resolved = shutil.which(self.maestro)
+        return resolved or self.maestro
+
     # -- preflight --------------------------------------------------------- #
 
     def check(self) -> list[str]:
@@ -82,7 +94,7 @@ class LocalBackend:
         junit = out_dir / "report.xml"
 
         command = [
-            self.maestro,
+            self._resolve_maestro(),
             *(["--device", self.device] if self.device else []),
             "test",
             "--format", "junit",
