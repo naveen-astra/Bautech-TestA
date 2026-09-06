@@ -138,23 +138,23 @@ Where no persona is permitted the action at all (TC-080: *"no DMs in V1"*), the 
 
 | Component | Status |
 |---|---|
-| Test sheet extraction (85 cases) | ✅ Complete |
-| Sheet parser | ✅ Complete |
-| Plan schema & invariants | ✅ Complete |
-| Permission oracle (role × action) | ✅ Complete |
-| Screen map — loader, lint, verification gate | 🟡 **4 / 41** targets verified against real hardware |
-| Plan compiler (LLM, cached) | 🟡 Complete; not yet run against a live model |
-| Differential probe generation | ✅ Complete |
-| Maestro renderer & observation protocol | ✅ Complete — hardened by real-device findings |
-| Verifier & negative-case adjudicator | ✅ Complete |
-| Verdict engine & reporting | ✅ Complete |
-| Bounded retries (`sentinel/junit.py`) | ✅ Re-runs a crash; never touches a real observed `FAIL` |
-| Local backend | ✅ Proven — 3 consecutive identical real-device runs |
-| BrowserStack backend | 🟡 Implemented against the documented API; not yet exercised live |
-| `run.py` — single-command entry point | ✅ Complete, with `--max-retries` |
-| APK inspection tooling | ✅ Run against build v0.1.2 |
-| Login flow on real hardware | ✅ Logs in and reaches real data, repeatably |
-| OTP relay (email fallback) | 🟡 Built and tested; not yet run against a live mailbox |
+| Test sheet extraction (85 cases) | Complete |
+| Sheet parser | Complete |
+| Plan schema & invariants | Complete |
+| Permission oracle (role × action) | Complete |
+| Screen map — loader, lint, verification gate | Partial — **4 / 41** targets verified against real hardware |
+| Plan compiler (LLM, cached) | Complete; not yet run against a live model |
+| Differential probe generation | Complete |
+| Maestro renderer & observation protocol | Complete — hardened by real-device findings |
+| Verifier & negative-case adjudicator | Complete |
+| Verdict engine & reporting | Complete |
+| Bounded retries (`sentinel/junit.py`) | Complete — re-runs a crash; never touches a real observed `FAIL` |
+| Local backend | Proven — 3 consecutive identical real-device runs |
+| BrowserStack backend | Partial — implemented against the documented API; not yet exercised live |
+| `run.py` — single-command entry point | Complete, with `--max-retries` |
+| APK inspection tooling | Complete — run against build v0.1.2 |
+| Login flow on real hardware | Complete — logs in and reaches real data, repeatably |
+| OTP relay (email fallback) | Partial — built and tested; not yet run against a live mailbox |
 
 ## Validated on Real Hardware
 
