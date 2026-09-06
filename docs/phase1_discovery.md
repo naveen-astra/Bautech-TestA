@@ -441,6 +441,49 @@ fixed by moving that test to `machinery`, which still has none, with a note
 explaining why the fixture needed to move rather than silently changing what
 it proves. **Check count holds at 117, all still green.**
 
+## Device paused - moved to pure-code work
+
+Checked back in on the phone and found it showing Instagram Reels, not
+Bautech - real, unambiguous evidence it had moved into someone's personal use
+rather than sitting available for testing. Did not relaunch Bautech and
+resume automated interaction on a phone actively being used for something
+else; paused all real-device work and shifted to code that needs none.
+
+**The reachability timeout got a second, more honest look.** The 6000ms fix
+from earlier missed again on the very next live run - the same failure mode,
+proven by the same evidence (a later step finding text the anchor check had
+just missed). Raised to 15000ms. This is explicitly logged in the code as an
+engineering judgment call made without device time to re-measure properly,
+not a re-measured number - worth tightening once the phone is available
+again rather than trusted as tuned.
+
+**Built and tested the persona-wave scheduler** (`sentinel/scheduler.py`),
+the real Phase 4/6 gap named since early in this project. A greedy
+batching algorithm: ride the current persona's wave as long as any plan has
+work ready for it, respecting each plan's own segment order absolutely (a
+cross-persona case's later segment can never be scheduled before its
+earlier one). Checked directly, not assumed:
+
+- Shuffled single-persona plans collapse into one wave per persona
+  regardless of sheet order
+- A cross-persona plan's segments are proven to stay in order even while
+  interleaved with unrelated plans' work
+- **A realistic 15-case mixed batch: naive sheet-order execution costs 11
+  logins, the scheduler's ordering costs 3** - checked against a computed
+  naive baseline, not asserted
+
+**Deliberately not done yet, and said so in the module's own docstring:**
+this produces an ordering, not yet a change to how flows are generated - each
+segment is still its own Maestro flow file with its own login regardless of
+which wave it lands in. The change that actually collapses login count in a
+real run - merging same-wave segments into one flow - is a real change to
+the renderer's flow-per-segment model, and was not made without device time
+to verify it working. Built the algorithm; wiring it in is the next step,
+not this one.
+
+**Check count is now 130** (31 + 58 + 19 + 9 + 13), all still holding the
+same anti-false-positive guarantee.
+
 ## Immediate next steps, in order
 
 1. **Ask Navicon whether the three test-number accounts actually exist yet.**
