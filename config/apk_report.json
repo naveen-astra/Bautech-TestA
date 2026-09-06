@@ -1,10 +1,10 @@
 {
-  "apk": "app-debug.apk",
-  "size_bytes": 232862056,
+  "apk": "app-release_2.apk",
+  "size_bytes": 167515465,
   "manifest": {
     "package": "com.naviconinfra.bautech",
     "version_name": "0.1.2",
-    "version_code": "11",
+    "version_code": "12",
     "min_sdk": "24",
     "target_sdk": "35",
     "permissions": [
@@ -32,9 +32,9 @@
     "google_storage_bucket": "navicon-erp.firebasestorage.app"
   },
   "structure": {
-    "entries": 713,
+    "entries": 601,
     "is_flutter": true,
-    "flutter_mode": "debug (JIT)",
+    "flutter_mode": "release (AOT)",
     "abis": [
       "arm64-v8a",
       "armeabi-v7a",
@@ -44,5 +44,5 @@
     "uses_firebase": true,
     "firebase_auth": true
   },
-  "label_count": 6779
+  "label_count": 0
 }
