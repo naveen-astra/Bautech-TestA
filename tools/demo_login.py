@@ -64,8 +64,12 @@ def main() -> int:
         # render_login assumes the app is already open on the login screen -
         # true inside a full case flow (render_segment adds launchApp once at
         # the top), but this is a standalone flow, so it needs its own.
+        # clearState: true - a stale session from earlier testing (a
+        # different persona, even the phone owner's own account) resumes on
+        # launch otherwise, and this script's whole point is to prove a
+        # fresh login, not accidentally skip it.
         commands = [
-            {"launchApp": {"appId": screen_map.meta["app_id"], "clearState": False}},
+            {"launchApp": {"appId": screen_map.meta["app_id"], "clearState": True}},
             *renderer.render_login(persona),
         ]
         doc = {"appId": screen_map.meta["app_id"], "name": f"login-{persona}"}
