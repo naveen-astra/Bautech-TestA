@@ -23,6 +23,15 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 os.environ.setdefault("SENTINEL_ALLOW_UNVERIFIED", "1")
 
+# Real bug, not hypothetical: the device's own real observation includes a
+# rupee sign, and Windows' default console codepage (cp1252) cannot encode
+# it - this crashed the demo one print after the real result was already in
+# hand. utf-8 stdout is what a demo terminal needs regardless of console
+# codepage, not a workaround for the specific character.
+if sys.stdout.encoding and sys.stdout.encoding.lower() != "utf-8":
+    sys.stdout.reconfigure(encoding="utf-8")
+    sys.stderr.reconfigure(encoding="utf-8")
+
 from sentinel.backends.local import LocalBackend  # noqa: E402
 from sentinel.observation import collect, flow_boundaries  # noqa: E402
 from sentinel.renderer import FlowRenderer  # noqa: E402
