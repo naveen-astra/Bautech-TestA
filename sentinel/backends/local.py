@@ -18,6 +18,27 @@ from pathlib import Path
 from sentinel.backends.base import BackendError, RunArtifacts
 
 
+def _resolve_adb() -> str | None:
+    """`adb`, or a real fallback if PATH doesn't have it.
+
+    Real environment gap, not hypothetical: on the actual dev machine this
+    was built and tested on, Maestro ended up on PATH but the Android SDK's
+    platform-tools directory never did - every use of `adb` this whole
+    project ran was a manually-typed absolute path, which meant `check()`'s
+    own `shutil.which("adb")` failed the preflight even with a real phone
+    attached and everything else working. A user-PATH fix does not reach a
+    shell that was already running when it was made, so a demo launched from
+    that same long-lived session would keep failing regardless - this
+    fallback is what actually makes `python tools/run_demo.py` (or the
+    `run_demo.bat` double-click it wraps) work without that timing trap.
+    """
+    found = shutil.which("adb")
+    if found:
+        return found
+    guess = Path.home() / "AppData" / "Local" / "Android" / "Sdk" / "platform-tools" / "adb.exe"
+    return str(guess) if guess.exists() else None
+
+
 class LocalBackend:
     """Maestro CLI against whatever device `adb` can see."""
 
@@ -50,11 +71,12 @@ class LocalBackend:
                 "https://docs.maestro.dev/maestro-cli/how-to-install-maestro-cli"
             )
 
-        adb = shutil.which("adb")
+        adb = _resolve_adb()
         if adb is None:
             problems.append(
-                "adb is not on PATH. It ships with the Android SDK platform-tools; "
-                "add that directory to PATH."
+                "adb is not on PATH and no Android SDK install was found under "
+                "~/AppData/Local/Android/Sdk. It ships with the Android SDK "
+                "platform-tools; add that directory to PATH."
             )
         else:
             try:
@@ -106,6 +128,31 @@ class LocalBackend:
             command += ["-e", f"{key}={value}"]
         command.append(str(flow_dir))
 
+        # Maestro shells out to adb itself once it's actually running, using
+        # whatever PATH this subprocess inherits - passing preflight via the
+        # resolved-fallback in check() does not help Maestro find adb if the
+        # real system PATH is still missing it. Prepending the resolved
+        # adb's own directory covers exactly that gap without needing PATH
+        # itself to be correct.
+        subprocess_env = {**os.environ}
+        adb = _resolve_adb()
+        if adb:
+            adb_dir = str(Path(adb).parent)
+            if adb_dir not in subprocess_env.get("PATH", ""):
+                subprocess_env["PATH"] = adb_dir + os.pathsep + subprocess_env.get("PATH", "")
+
+        # Real, live finding: Maestro's own background analytics "heartbeat"
+        # writes to a shared key-value store under ~/.maestro every ~5s, and
+        # on this machine that write kept losing a file-lock race (repeated
+        # `Failed to record heartbeat` IOExceptions in maestro.log) - harmless
+        # on its own, but the very next tapOn after a burst of them gave up
+        # after 0.4s instead of the several seconds every prior successful
+        # run took, meaning something about the exception storm was
+        # disrupting Maestro's own retry timing. Opting out (the documented
+        # MAESTRO_CLI_NO_ANALYTICS variable) removes the contention rather
+        # than trying to out-guess its effect on internal scheduling.
+        subprocess_env["MAESTRO_CLI_NO_ANALYTICS"] = "true"
+
         started = time.monotonic()
         try:
             completed = subprocess.run(
@@ -113,7 +160,7 @@ class LocalBackend:
                 capture_output=True,
                 text=True,
                 timeout=timeout_seconds,
-                env={**os.environ},
+                env=subprocess_env,
             )
             exit_code, stdout, stderr = completed.returncode, completed.stdout, completed.stderr
             notes: list[str] = []
