@@ -1,0 +1,267 @@
+"""The loop that reads a test case, looks at a real screen, and works.
+
+    observe -> think -> act -> observe -> ...
+
+No flow is compiled ahead of time and no screen map is consulted. The agent
+is handed the test case exactly as a human tester receives it - the steps and
+the expected result, in the operations person's own words - and then sees only
+what is genuinely on the device in front of it.
+
+WHAT THE AGENT IS DELIBERATELY NOT TOLD
+
+It is never told whether a case is meant to pass or to be blocked. The
+assessment is explicit that polarity must come from the Expected column text
+alone, and the surest way to honour that is to give the model the same words
+the tester gets and nothing else - no shading, no flag, no hint from the
+permission matrix. It reads "Blocked - no Add Site option for Site Engineer"
+and works out for itself that it is looking for an absence.
+
+It is also not allowed to do arithmetic. `note` records a raw value exactly as
+displayed; the deterministic verifier subtracts. A case that says stock must
+increase by 100 is settled by 600 - 500, never by an impression that the
+screen looked about right.
+
+WHAT COMES OUT
+
+An `AgentRun`: every step taken, every value noted, and the full text
+inventory of every screen visited. That last part is what makes absence
+provable - "Site B appeared on none of the six screens I actually reached" is
+evidence, where "my selector found nothing" is not.
+"""
+
+from __future__ import annotations
+
+import json
+from dataclasses import dataclass, field
+from typing import Any, Protocol
+
+from sentinel.actions import Action, ActionError, Finish, GiveUp, Note, TOOL_SCHEMA, build
+from sentinel.perception import PerceptionError, Screen, capture
+
+SYSTEM_PROMPT = """\
+You are a QA tester driving a real Android app on a real phone. You are \
+executing one test case from a regression suite.
+
+You see only what is genuinely on the screen right now, listed as numbered \
+elements. Act by index. Anything not in that list is not on the screen - the \
+list is filtered to the app under test, so system UI, the status bar and \
+other apps are invisible to you and cannot be interacted with.
+
+How to work:
+
+- Read the test case's steps and its expected result. Work out for yourself \
+what the case is asking you to establish. Some cases expect an action to \
+succeed; others expect it to be refused, or expect something to be absent. \
+Nobody will tell you which kind this is - decide from the expected result.
+
+- Before concluding that something is absent, look properly. Scroll down, and \
+check any obvious place it would live. A control below the fold is not a \
+missing control, and reporting one as the other is the single worst mistake \
+you can make here.
+
+- Be sure you are on the screen the case is about before drawing any \
+conclusion from it. If you never reached that screen, say so - a conclusion \
+drawn from the wrong screen is worthless, and an honest "I could not get \
+there" is far more useful than a guess.
+
+- When the case turns on a value - a stock level, a total, a count - use \
+`note` to record it exactly as displayed, both before and after you act. Do \
+not calculate anything and do not judge whether the number is right. That \
+comparison is made elsewhere, deterministically.
+
+- Take one action at a time and look again after each one. If the screen did \
+not change when you expected it to, do not simply repeat yourself - work out \
+why.
+
+- When the steps are done, call `finish`. If you are genuinely stuck, call \
+`give_up` and say exactly what stopped you. Never invent a result.
+"""
+
+
+class Brain(Protocol):
+    """Whatever decides the next action. A model, or a script in tests."""
+
+    def decide(self, system: str, messages: list[dict[str, Any]]) -> tuple[str, dict]:
+        ...
+
+
+@dataclass
+class Step:
+    number: int
+    action_name: str
+    description: str
+    result: str
+    screen_texts: list[str] = field(default_factory=list)
+
+
+@dataclass
+class AgentRun:
+    """Everything one case's execution left behind."""
+
+    case_id: str
+    steps: list[Step] = field(default_factory=list)
+    observations: dict[str, str] = field(default_factory=dict)
+    screens_seen: list[list[str]] = field(default_factory=list)
+    finished: bool = False
+    reached_target_screen: bool = False
+    summary: str = ""
+    gave_up: bool = False
+    give_up_reason: str = ""
+    exhausted_budget: bool = False
+
+    @property
+    def all_screen_text(self) -> list[str]:
+        """Every distinct piece of text seen anywhere during the run."""
+        seen: list[str] = []
+        for texts in self.screens_seen:
+            for text in texts:
+                if text not in seen:
+                    seen.append(text)
+        return seen
+
+    def saw(self, needle: str) -> bool:
+        lowered = needle.lower()
+        return any(lowered in text.lower() for text in self.all_screen_text)
+
+    def trace(self) -> str:
+        lines = [f"{s.number:>2}. {s.description} -> {s.result}" for s in self.steps]
+        return "\n".join(lines)
+
+
+class ClaudeBrain:
+    """The real thing: Claude picks the next action as a tool call.
+
+    `tool_choice: any` forces a tool call every turn, so the model cannot
+    drift into narrating instead of acting. Sonnet is the default because
+    this loop runs on every step of every case and the reasoning it needs -
+    read a screen listing, follow a test case - does not require Opus. Cost
+    per run is a graded constraint here, not a footnote.
+    """
+
+    def __init__(self, model: str = "claude-sonnet-5", max_tokens: int = 1024) -> None:
+        import anthropic
+
+        self.client = anthropic.Anthropic()
+        self.model = model
+        self.max_tokens = max_tokens
+        self.calls = 0
+        self.input_tokens = 0
+        self.output_tokens = 0
+
+    def decide(self, system: str, messages: list[dict[str, Any]]) -> tuple[str, dict]:
+        response = self.client.messages.create(
+            model=self.model,
+            max_tokens=self.max_tokens,
+            system=system,
+            tools=TOOL_SCHEMA,
+            tool_choice={"type": "any"},
+            messages=messages,
+        )
+        self.calls += 1
+        self.input_tokens += response.usage.input_tokens
+        self.output_tokens += response.usage.output_tokens
+        for block in response.content:
+            if block.type == "tool_use":
+                return block.name, dict(block.input)
+        raise ActionError("the model returned no action")
+
+
+def _case_brief(case: Any) -> str:
+    """The case in the tester's own words - nothing added, nothing flagged."""
+    return (
+        f"Test case {case.case_id}: {case.title}\n"
+        f"Performed by: {case.persona}\n\n"
+        f"Steps to perform:\n{case.steps}\n\n"
+        f"Expected result:\n{case.expected}"
+    )
+
+
+def run_case(
+    case: Any,
+    brain: Brain,
+    adb: str,
+    package: str,
+    max_steps: int = 40,
+    log=print,
+) -> AgentRun:
+    """Execute one case live, and bring back everything that happened."""
+    run = AgentRun(case_id=case.case_id)
+    messages: list[dict[str, Any]] = []
+    brief = _case_brief(case)
+
+    for number in range(1, max_steps + 1):
+        try:
+            screen = capture(adb, package)
+        except PerceptionError as exc:
+            run.gave_up = True
+            run.give_up_reason = f"could not read the screen: {exc}"
+            log(f"  {number:>2}. cannot see the screen: {exc}")
+            return run
+
+        run.screens_seen.append(screen.texts)
+
+        if number == 1:
+            messages.append({
+                "role": "user",
+                "content": f"{brief}\n\nThe screen right now:\n\n{screen.render()}",
+            })
+        else:
+            messages.append({
+                "role": "user",
+                "content": f"The screen now:\n\n{screen.render()}",
+            })
+
+        try:
+            name, arguments = brain.decide(SYSTEM_PROMPT, messages)
+            action = build(name, arguments)
+        except ActionError as exc:
+            # Tell the model precisely what was wrong and let it correct
+            # itself; a malformed action is not a reason to abandon a case.
+            log(f"  {number:>2}. rejected: {exc}")
+            messages.append({"role": "assistant", "content": f"(invalid action: {exc})"})
+            continue
+
+        result = ""
+        try:
+            result = action.execute(adb, screen)
+        except (ActionError, PerceptionError) as exc:
+            result = f"failed: {exc}"
+
+        run.steps.append(Step(
+            number=number,
+            action_name=action.name,
+            description=action.describe(),
+            result=result,
+            screen_texts=screen.texts,
+        ))
+        log(f"  {number:>2}. {action.describe()} -> {result}")
+
+        messages.append({"role": "assistant", "content": f"{action.describe()}"})
+
+        if isinstance(action, Note):
+            run.observations[action.key] = action.value
+        elif isinstance(action, Finish):
+            run.finished = True
+            run.reached_target_screen = action.reached_target_screen
+            run.summary = action.summary
+            return run
+        elif isinstance(action, GiveUp):
+            run.gave_up = True
+            run.give_up_reason = action.reason
+            return run
+
+        messages.append({"role": "user", "content": f"Result: {result}"})
+        # Keep only the most recent screens in context - older ones are
+        # superseded and paying to resend them every step is the difference
+        # between an affordable run and an unaffordable one.
+        messages = _trim(messages)
+
+    run.exhausted_budget = True
+    return run
+
+
+def _trim(messages: list[dict[str, Any]], keep: int = 12) -> list[dict[str, Any]]:
+    """Keep the opening brief plus a recent window of the conversation."""
+    if len(messages) <= keep + 1:
+        return messages
+    return messages[:1] + messages[-keep:]
