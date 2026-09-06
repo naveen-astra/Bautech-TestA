@@ -92,8 +92,12 @@ def _selector(spec: dict[str, Any]) -> Any:
     list card - that this app's custom widgets merge several pieces of text
     into one accessibility node, which an exact match cannot see into. A
     fuzzy match costs nothing on the many labels that turn out to be clean
-    (".*Reports.*" still fully matches a node whose text is only "Reports"),
-    so this is the safe default everywhere, not a targeted patch.
+    ("Reports.*" still fully matches a node whose text is only "Reports"),
+    so this is the safe default everywhere, not a targeted patch. Every call
+    site must go through this function or `_fuzzy_text` directly, never
+    reimplement the pattern inline - one line in `render_login` did exactly
+    that and silently missed `_fuzzy_text`'s later start-anchoring fix as a
+    result (see `_fuzzy_text`'s own docstring).
     """
     if set(spec) == {"text"}:
         return _fuzzy_text(spec["text"])
@@ -116,20 +120,63 @@ def _js(value: str) -> str:
 
 
 def _fuzzy_text(text: str) -> dict[str, str]:
-    """A selector that finds `text` even merged into a longer accessibility
-    string.
+    """A selector for TAPPING one specific widget whose own label may be
+    merged into a longer accessibility string.
 
-    Confirmed against a real device twice now, in two different widgets: a
-    segmented-control tab whose real label was "Phone\\nTab 1 of 2", and a
-    site-list card whose real label was the whole card's content run
-    together ("Aqua Line\\nMumbai\\n100%\\n...Total expense: ₹74,113").
-    Flutter merges adjacent Semantics nodes into one accessibility string for
-    custom widgets like these, and Maestro's text selector requires a full
-    match - so a bare literal, correct as it looks, matches nothing. Two
-    independent occurrences make this the rule for this app's custom
-    widgets, not a one-off quirk to special-case.
+    Confirmed against a real device three separate times: a segmented-control
+    tab whose real label was "Phone\\nTab 1 of 2", a bottom-nav item
+    ("Sites\\nTab 1 of 4"), and a site-list card whose real label was the
+    whole card's content run together ("Aqua Line\\nMumbai\\n100%\\n...Total
+    expense: ₹74,113"). Flutter merges adjacent Semantics nodes into one
+    accessibility string for custom widgets like these, and Maestro's text
+    selector requires a full match - so a bare literal, correct as it looks,
+    matches nothing.
+
+    Anchored at the start (`text.*`), not `.*text.*` either side. In every
+    confirmed case above, the widget's own label is the first thing in its
+    merged string - Flutter concatenates a widget's own Semantics children in
+    reading order, so this is not a coincidence. First live cloud contact
+    (2026-09-03) proved why the unanchored version was actually dangerous: a
+    real Samsung Galaxy S22 device had a stray OEM status-bar notification
+    reading "Galaxy Themes notification: Phone personalization", and
+    `.*Phone.*` matched it - Maestro tapped that instead of the app's own
+    Phone tab, and the whole login flow derailed before it ever reached the
+    real screen. Anchoring at the start would have excluded it (the word
+    "Phone" sits mid-string there, not first) while still matching all three
+    confirmed real cases above. This must never be used for "does this token
+    appear anywhere on screen" - that is `_contains_text`, kept unanchored on
+    purpose, for a genuinely different question.
     """
-    return {"text": ".*" + re.escape(text) + ".*"}
+    return {"text": _escape_multiline(text) + ".*"}
+
+
+def _escape_multiline(text: str) -> str:
+    """`re.escape`, but safe for text containing an embedded newline.
+
+    `re.escape` on a string with a real newline byte in it inserts a literal
+    backslash immediately before that raw byte - not the two-character `\\n`
+    regex metasequence a regex engine actually recognises as "newline". Real,
+    live-only finding (2026-09-03): Maestro's own log printed the resulting
+    selector split across two lines, which is exactly this - a backslash
+    followed by a raw newline, not an escaped newline. Whether the underlying
+    (Java) regex engine happens to treat that as a literal newline anyway was
+    not something worth trusting; escaping each line separately and joining
+    with the unambiguous `\\n` sequence removes the question entirely.
+    """
+    return "\\n".join(re.escape(line) for line in text.split("\n"))
+
+
+def _contains_text(text: str) -> dict[str, str]:
+    """A selector for SWEEPING a screen: does `text` appear anywhere at all.
+
+    Deliberately unanchored (`.*text.*`) - unlike `_fuzzy_text`, this is not
+    matching one specific widget's own label, it is asking whether a token a
+    prohibition cares about leaked anywhere on screen, which could legitimately
+    be embedded mid-string inside unrelated content. Anchoring this the same
+    way as `_fuzzy_text` would risk real false negatives on exactly the kind
+    of leak this sweep exists to catch.
+    """
+    return {"text": ".*" + _escape_multiline(text) + ".*"}
 
 
 def _unverified_email_field() -> dict[str, Any]:
@@ -182,23 +229,49 @@ class FlowRenderer:
         if self._anchored == screen:
             return []
         self._anchored = screen
-        anchor = _selector(self.screen_map.anchor(screen))
+        # A fresh dict per use, not one object referenced three times below.
+        # Real, live-confirmed bug: PyYAML detects repeated identical object
+        # references and automatically collapses them into a YAML
+        # anchor/alias (&id001 / *id001) to avoid duplicating the content -
+        # confirmed in the actually-rendered flow file. The element was
+        # proven present via a real captured hierarchy dump at the exact
+        # moment the check ran, and still evaluated false, which points at
+        # Maestro's own alias handling rather than timing or text matching -
+        # both already ruled out with real evidence. Every other selector in
+        # this file builds a fresh dict per use and has no such problem.
+        anchor_selector = self.screen_map.anchor(screen)
         return [
-            # Confirmed against a real device: a screen resuming from the
-            # background (launchApp on an already-running app) is not
-            # necessarily redrawn yet by the time the very next command
-            # runs. The plain visibility check below is a single instant
-            # look with no retry, so it can report false on a screen that
-            # is genuinely there a moment later - proven directly, where
-            # the anchor read false here and the identical text was then
-            # found by a sweep a few steps on. This wait absorbs that
-            # settle time; it is optional so a truly missing anchor still
-            # falls through to be recorded as false, not aborted.
-            {"extendedWaitUntil": {"visible": anchor, "timeout": 6000, "optional": True}},
+            # Confirmed against a real device, twice: a screen resuming from
+            # the background is not necessarily redrawn yet by the time the
+            # very next command runs. The plain visibility check below is a
+            # single instant look with no retry, so it can report false on a
+            # screen that is genuinely there a moment later - proven both
+            # times by a later step finding the identical text this check
+            # just missed. A first attempt at this fix used 6000ms and still
+            # missed on the very next real run, so this is deliberately more
+            # generous than that measurement suggested - an engineering
+            # judgment call under time pressure, not a re-measured number,
+            # and worth tightening once real device time allows timing this
+            # properly rather than padding it. Optional, so a genuinely
+            # missing anchor still falls through to be recorded as false
+            # rather than aborting the flow.
+            {"extendedWaitUntil": {"visible": _selector(anchor_selector),
+                                   "timeout": 15000, "optional": True}},
+            # A plain visibility check only sees what is already on the
+            # visible portion of the screen - confirmed live (2026-09-04):
+            # the "home" anchor sat below the fold on a real populated
+            # company (a scrollable sites list above it), so this check
+            # reported false while a later, scrolling step found the exact
+            # same text moments later. scrollUntilVisible is a safe no-op
+            # cost when the anchor is already on screen, so this is the same
+            # kind of default-safe generosity as the wait above, not a
+            # per-screen special case.
+            {"scrollUntilVisible": {"element": _selector(anchor_selector), "direction": "DOWN",
+                                    "timeout": 4000, "optional": True}},
             {"evalScript": "${output.anchor = false}"},
             {
                 "runFlow": {
-                    "when": {"visible": anchor},
+                    "when": {"visible": _selector(anchor_selector)},
                     "commands": [{"evalScript": "${output.anchor = true}"}],
                 }
             },
@@ -289,7 +362,7 @@ class FlowRenderer:
             commands += [
                 {
                     "scrollUntilVisible": {
-                        "element": _fuzzy_text(resolved),
+                        "element": _contains_text(resolved),
                         "direction": "DOWN",
                         "timeout": 4000,
                         # A token this sweep is looking for is often
@@ -304,7 +377,7 @@ class FlowRenderer:
                 },
                 {
                     "runFlow": {
-                        "when": {"visible": _fuzzy_text(resolved)},
+                        "when": {"visible": _contains_text(resolved)},
                         "commands": [
                             {"evalScript": "${output.seen.push(" + _js(resolved) + ")}"}
                         ],
@@ -474,9 +547,24 @@ class FlowRenderer:
             # bounced us back to a list.
             self._anchored = None
 
-        if step.label:
-            commands = [{**c, "label": step.label} if len(c) == 1 else c for c in commands[:1]] + \
-                commands[1:]
+        if step.label and commands:
+            # label belongs INSIDE the command's own value block, not beside
+            # the command name - the exact same class of mistake this file
+            # already documents for `optional` (see _render_capture_screen_text).
+            # Real, live consequence this time: {"tapOn": {...}, "label": "..."}
+            # is not valid Maestro syntax and aborted the whole flow before a
+            # single step ran, confirmed by a real "Invalid Command Format"
+            # error on real hardware. Only merged when the command's own value
+            # is already a dict (true for every real caller today - NAVIGATE's
+            # first command is always a selector dict); left alone otherwise
+            # rather than guess an unverified shorthand-to-dict conversion for
+            # commands (evalScript, hideKeyboard, ...) that may not even
+            # support a label the same way.
+            first = commands[0]
+            if len(first) == 1:
+                (command_name, value), = first.items()
+                if isinstance(value, dict):
+                    commands = [{command_name: {**value, "label": step.label}}] + commands[1:]
         return commands
 
     # -- login ------------------------------------------------------------- #
@@ -493,12 +581,81 @@ class FlowRenderer:
         by_phone = config.get("login_method", "phone") == "phone"
 
         commands: list[dict[str, Any]] = [
+            # A real BrowserStack cloud device (2026-09-03) proved every
+            # attempt before this one was failing for a reason that had
+            # nothing to do with the Phone tab selector at all: a genuinely
+            # fresh install shows a one-time "Select Your Language" screen
+            # (English/Hindi/Gujarati, "Continue") before the login screen
+            # ever appears. This was never seen on the local physical phone,
+            # because that install had already completed this step once and
+            # it stuck - so render_login() never accounted for it. Confirmed
+            # by fetching the real screenshot Maestro captured at the exact
+            # failure point, not guessed. English is already the pre-checked
+            # default, so tapping Continue needs no prior selection.
+            #
+            # A bare `runFlow: when: visible:` is a single instant look, no
+            # retry - exactly the bug _anchor_check documents for a screen
+            # resuming from the background: it can report false on a screen
+            # that is genuinely there a moment later. Real consequence, live
+            # cloud contact: this exact check fired before the cold-started
+            # Flutter engine had finished rendering the language screen,
+            # evaluated false, skipped the Continue tap - and by the time
+            # the *next* command ran a few seconds later, the language screen
+            # had finished rendering after all, so that command searched for
+            # the Phone tab on a screen that was still "Select Your
+            # Language". Fixed the same way _anchor_check already proved
+            # works: an `optional` extendedWaitUntil polls for the text
+            # first (never fails the flow either way), then the `runFlow`
+            # check - now checking a screen that has had time to settle -
+            # decides whether to tap Continue.
+            #
+            # 8000ms was not generous enough either - a later BrowserStack
+            # device allocation proved it directly: a real captured video
+            # frame at +13.7s into the app's cold start showed a *blank white
+            # screen*, still mid Flutter-engine-initialisation, well past
+            # this wait's original ceiling. Device pool variance on shared
+            # cloud hardware is evidently wide enough that a number tuned
+            # against one allocation can fail on the next. Raised to match
+            # the same order of magnitude already used for the equally
+            # real-evidence-driven anchor waits elsewhere in this file
+            # (_anchor_check's 15000ms, the post-login home-anchor's 20000ms)
+            # rather than re-guess a tighter number from one more sample.
+            {"extendedWaitUntil": {"visible": {"text": "Select Your Language"},
+                                   "timeout": 20000, "optional": True}},
+            {
+                "runFlow": {
+                    "when": {"visible": {"text": "Select Your Language"}},
+                    "commands": [{"tapOn": "Continue"}],
+                },
+            },
             # Confirmed against a real device: this tab's actual accessibility
             # text is "Phone\nTab 1 of 2" - Flutter merges the tab-position
             # hint into the label for this segmented-control widget. Maestro's
             # text selector requires a full match, so the bare word alone
-            # matches nothing; ".*" either side absorbs the merged text.
-            {"tapOn": {"text": ".*Phone.*" if by_phone else ".*Email.*"}},
+            # matches nothing.
+            #
+            # Routed through _fuzzy_text() rather than a hand-written regex -
+            # this exact line used to read {"text": ".*Phone.*" ...}, written
+            # before _fuzzy_text existed as a shared helper, and it silently
+            # never picked up _fuzzy_text's later start-anchoring fix because
+            # it duplicated the pattern instead of calling the function. Real
+            # consequence, seen on live cloud hardware before this was caught:
+            # a Samsung Galaxy S22's stray OEM status-bar notification
+            # ("Galaxy Themes notification: Phone personalization") matched
+            # the unanchored regex and got tapped instead of this tab.
+            #
+            # Anchoring at the start alone was not enough, either - the very
+            # next live run proved a *second* status-bar element collides:
+            # the signal-strength icon's own accessibility text is literally
+            # "Phone signal full.", which also starts with "Phone". Android's
+            # status bar is evidently not excluded from Maestro's search at
+            # all, so any selector built from "Phone" alone is fragile on
+            # real hardware regardless of anchoring. Matching the confirmed
+            # real merged string all the way through the newline
+            # ("Phone\nTab 1 of 2") is what actually rules both out - no
+            # status-bar element plausibly contains "Phone" immediately
+            # followed by a literal newline and "Tab".
+            {"tapOn": _fuzzy_text("Phone\nTab" if by_phone else "Email\nTab")},
             # Selecting the Phone/Email tab does not focus the input field
             # beneath it - confirmed against a real device, where inputText
             # sent with nothing focused typed into empty air and the flow
@@ -542,7 +699,22 @@ class FlowRenderer:
             raise RenderError(f"unknown otp_mode {mode!r} for persona {persona!r}")
 
         commands.append("hideKeyboard")
-        commands.append({"tapOn": "Verify"})
+        # The real label is "Verify OTP", not "Verify" - confirmed directly
+        # on the physical phone (2026-09-04), not guessed. BrowserStack live
+        # contact had this tap searching its full timeout and finding
+        # nothing, every time, across every fix tried for the steps before
+        # it - a diagnostic screenshot proved unreliable (BrowserStack's
+        # maestroScreenshot artifact returned the same stale first-launch
+        # frame regardless of when it was requested, confirmed by comparing
+        # two screenshots taken at genuinely different points in the same
+        # run), so the real answer came from manually replaying the exact
+        # same phone number and OTP on the connected physical device: typing
+        # the OTP and tapping the real "Verify OTP" button worked
+        # end-to-end, landing on a real post-login screen. "Verify" was
+        # simply never going to match - Maestro requires a full match, and
+        # this is the one label in the whole flow that turned out to need a
+        # second word, not a merge or a selector strategy problem.
+        commands.append({"tapOn": "Verify OTP"})
         commands.append(
             {"extendedWaitUntil": {"visible": _selector(self.screen_map.anchor("home")),
                                    "timeout": 20000}}
@@ -570,7 +742,20 @@ class FlowRenderer:
 
         commands: list[dict[str, Any]] = [
             {"evalScript": "${console.log('" + FLOW_MARKER + " start " + plan.case_id + "')}"},
-            {"launchApp": {"appId": self.app_id, "clearState": False}},
+            # clearState: true, not false. Real, live finding: a device that
+            # had been logged into a *different* account earlier the same
+            # day (manual testing, a different persona, even the phone
+            # owner's own account) resumes that session on launch when state
+            # is preserved - the whole login flow then runs against a screen
+            # that was never the login screen at all, and every subsequent
+            # tap fails "correctly", for a reason that has nothing to do with
+            # selectors. This is exactly the class of thing the project's own
+            # test-isolation principle exists to prevent: a repeatable run
+            # cannot depend on what state a device happened to be left in.
+            # A fresh install shows the one-time language screen either way,
+            # and render_login already waits for that - clearing state does
+            # not add a step the flow was not already handling.
+            {"launchApp": {"appId": self.app_id, "clearState": True}},
         ]
 
         explicit_login = any(s.capability is Capability.LOGIN for s in segment.steps)
