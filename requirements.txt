@@ -1,0 +1,18 @@
+# Bautech Sentinel - runtime dependencies.
+#
+#     pip install -r requirements.txt
+#
+# Versions are the ones this project is verified against on Python 3.13.
+
+# Core - required for every mode.
+pydantic==2.11.10      # the TestPlan contract and its invariants
+requests==2.32.5       # the brain's HTTP client, and the BrowserStack API
+PyYAML==6.0.2          # screen_map.yaml, personas.yaml, the permission oracle
+
+# Optional - only if you use the paid Claude brain instead of a free provider.
+# Everything runs at zero cost without this; see README section 9.
+anthropic==0.75.0
+
+# Optional - only for tools/extract_suite.py, which rebuilds the CSV from
+# Navicon's source .docx. Not needed to run any test.
+python-docx==1.1.2
