@@ -17,6 +17,8 @@ evidence that earned it.
 
 *Built for Navicon InfraProjects*
 
+**[Full technical assessment (PDF)](docs/Bautech_agent_complete1.pdf)** — this README, formatted for reading and sharing
+
 </div>
 
 ---
@@ -1422,6 +1424,7 @@ tools/
   scheduler_tests.py  browserstack_tests.py  otp_relay_tests.py
 
 docs/
+  Bautech_agent_complete1.pdf    this README, rendered as the technical assessment document
   phase1_discovery.md            real-device environment findings
   navicon_email_login_reset.md   the login defect, as reported to Navicon
 
