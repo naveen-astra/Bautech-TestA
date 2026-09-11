@@ -204,8 +204,16 @@ brain = ScriptedBrain([
 ])
 run = run_case(CASE, brain, adb="adb", package="pkg", log=lambda m: None)
 check("both observations were captured",
-      run.observations, {"stock_before": "500", "stock_after": "600"})
+      {k: o.value for k, o in run.observations.items()},
+      {"stock_before": "500", "stock_after": "600"})
 check_true("the agent recorded values without judging them", run.finished)
+# An observation carries the standing it was made under, not just a number:
+# what was on screen at the time, and whether the agent had confirmed where
+# it was. Without those the value cannot be defended later.
+check_true("each value carries what was on screen when it was read",
+           all(o.screen_texts for o in run.observations.values()))
+check_true("a value read without confirming the screen says so",
+           all(o.screen_confirmed is False for o in run.observations.values()))
 
 
 # --------------------------------------------------------------------------- #
