@@ -35,7 +35,17 @@ import json
 from dataclasses import dataclass, field
 from typing import Any, Protocol
 
-from sentinel.actions import Action, ActionError, Finish, GiveUp, Note, TOOL_SCHEMA, build
+from sentinel.actions import (
+    Action,
+    ActionError,
+    ConfirmScreen,
+    Finish,
+    GiveUp,
+    Note,
+    ReportAttempt,
+    TOOL_SCHEMA,
+    build,
+)
 from sentinel.perception import PerceptionError, Screen, capture
 
 SYSTEM_PROMPT = """\
@@ -59,10 +69,18 @@ check any obvious place it would live. A control below the fold is not a \
 missing control, and reporting one as the other is the single worst mistake \
 you can make here.
 
-- Be sure you are on the screen the case is about before drawing any \
-conclusion from it. If you never reached that screen, say so - a conclusion \
-drawn from the wrong screen is worthless, and an honest "I could not get \
-there" is far more useful than a guess.
+- Before drawing any conclusion about what a screen does or does not contain, \
+call `confirm_screen` and say what you can actually see that makes you sure \
+you are in the right place. Name something only that screen shows. If you \
+cannot honestly do that, keep navigating or call `give_up` - an absence \
+noticed on the wrong screen proves nothing at all, and claiming otherwise is \
+the worst error available to you.
+
+- If the case asks you to attempt something, actually attempt it, then report \
+what happened with `report_attempt`. Say what the app really did - refused, \
+appeared to accept but nothing changed, errored, or went through. If \
+something the case expected to be blocked goes through instead, report that \
+plainly. That is a real finding and hiding it would be worse than useless.
 
 - When the case turns on a value - a stock level, a total, a count - use \
 `note` to record it exactly as displayed, both before and after you act. Do \
@@ -95,13 +113,27 @@ class Step:
 
 
 @dataclass
+class Observation:
+    """One value the agent read, and the standing it had when it read it."""
+
+    key: str
+    value: str
+    screen_texts: list[str] = field(default_factory=list)
+    screen_confirmed: bool = False
+    confirmed_as: str = ""
+    outcome: str = ""
+    detail: str = ""
+
+
+@dataclass
 class AgentRun:
     """Everything one case's execution left behind."""
 
     case_id: str
     steps: list[Step] = field(default_factory=list)
-    observations: dict[str, str] = field(default_factory=dict)
+    observations: dict[str, Observation] = field(default_factory=dict)
     screens_seen: list[list[str]] = field(default_factory=list)
+    confirmations: list[tuple[str, str]] = field(default_factory=list)
     finished: bool = False
     reached_target_screen: bool = False
     summary: str = ""
@@ -166,14 +198,34 @@ class ClaudeBrain:
         raise ActionError("the model returned no action")
 
 
-def _case_brief(case: Any) -> str:
-    """The case in the tester's own words - nothing added, nothing flagged."""
-    return (
+def _case_brief(case: Any, mission: dict[str, str] | None = None) -> str:
+    """The case in the tester's own words, plus what must be recorded.
+
+    The wording is the sheet's own - the same sentences a human tester reads,
+    with nothing added about whether this case is meant to succeed or be
+    refused. That judgment is the agent's to make from the expected result.
+
+    What IS supplied is the list of values the verdict will later be computed
+    from. This is not a hint about the answer; it is the difference between a
+    tester who knows to write the stock level down before touching anything
+    and one who realises too late. Note that it says what to record, never
+    where to find it or how to get there - the navigation is entirely the
+    agent's problem, which is exactly what makes a case nobody has ever run
+    before cost nothing extra.
+    """
+    text = (
         f"Test case {case.case_id}: {case.title}\n"
         f"Performed by: {case.persona}\n\n"
         f"Steps to perform:\n{case.steps}\n\n"
         f"Expected result:\n{case.expected}"
     )
+    if mission:
+        lines = "\n".join(f"  - {key}: {what}" for key, what in mission.items())
+        text += (
+            "\n\nRecord these, exactly as displayed, using `note` "
+            "(or `report_attempt` where it names an attempt):\n" + lines
+        )
+    return text
 
 
 def run_case(
@@ -183,11 +235,13 @@ def run_case(
     package: str,
     max_steps: int = 40,
     log=print,
+    mission: dict[str, str] | None = None,
 ) -> AgentRun:
     """Execute one case live, and bring back everything that happened."""
     run = AgentRun(case_id=case.case_id)
     messages: list[dict[str, Any]] = []
-    brief = _case_brief(case)
+    brief = _case_brief(case, mission)
+    confirmed_screen = ""
 
     for number in range(1, max_steps + 1):
         try:
@@ -238,8 +292,31 @@ def run_case(
 
         messages.append({"role": "assistant", "content": f"{action.describe()}"})
 
-        if isinstance(action, Note):
-            run.observations[action.key] = action.value
+        if isinstance(action, ConfirmScreen):
+            # From here on, what the agent records was seen from a screen it
+            # has stated its reasons for believing it is on. That standing is
+            # what the prohibition ladder needs and what stops an absence
+            # noticed in the wrong place from ever becoming a pass.
+            confirmed_screen = action.screen
+            run.confirmations.append((action.screen, action.evidence))
+        elif isinstance(action, Note):
+            run.observations[action.key] = Observation(
+                key=action.key,
+                value=action.value,
+                screen_texts=screen.texts,
+                screen_confirmed=bool(confirmed_screen),
+                confirmed_as=confirmed_screen,
+            )
+        elif isinstance(action, ReportAttempt):
+            run.observations[action.key] = Observation(
+                key=action.key,
+                value=action.outcome,
+                screen_texts=screen.texts,
+                screen_confirmed=bool(confirmed_screen),
+                confirmed_as=confirmed_screen,
+                outcome=action.outcome,
+                detail=action.detail,
+            )
         elif isinstance(action, Finish):
             run.finished = True
             run.reached_target_screen = action.reached_target_screen
