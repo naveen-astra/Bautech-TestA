@@ -179,6 +179,54 @@ class Note(Action):
 
 
 @dataclass
+class ConfirmScreen(Action):
+    """The agent stating, with its reasons, that it has arrived.
+
+    This is rung (a) of the prohibition ladder, and it is the whole answer to
+    the assessment's hardest question - how do you know the app blocked you,
+    rather than your automation simply failing to find things? An absence
+    observed from a screen you never reached is worth nothing. So the agent
+    must say, in its own words and from what it can actually see, why it is
+    sure it is in the right place. Everything it records afterwards carries
+    that confirmation with it.
+    """
+
+    screen: str = ""
+    evidence: str = ""
+    name: str = "confirm_screen"
+
+    def describe(self) -> str:
+        return f"confirm on {self.screen!r} because: {self.evidence}"
+
+    def execute(self, adb: str, screen: Screen) -> str:
+        return f"confirmed on {self.screen}"
+
+
+@dataclass
+class ReportAttempt(Action):
+    """What became of an action the case required be attempted.
+
+    A prohibition is not proved by a control being missing - a control can be
+    missing because the app forbids it, or because the screen had not
+    finished drawing. Where the case calls for actually trying the forbidden
+    thing, the agent tries it and reports the outcome in the app's own terms:
+    refused outright, silently accepted but nothing moved, errored, or
+    stalled on our side.
+    """
+
+    key: str = ""
+    outcome: str = "unknown"
+    detail: str = ""
+    name: str = "report_attempt"
+
+    def describe(self) -> str:
+        return f"attempt {self.key} -> {self.outcome} ({self.detail})"
+
+    def execute(self, adb: str, screen: Screen) -> str:
+        return f"recorded attempt {self.key} as {self.outcome}"
+
+
+@dataclass
 class Finish(Action):
     summary: str = ""
     reached_target_screen: bool = False
@@ -212,9 +260,15 @@ _REGISTRY: dict[str, type[Action]] = {
     "back": Back,
     "hide_keyboard": HideKeyboard,
     "note": Note,
+    "confirm_screen": ConfirmScreen,
+    "report_attempt": ReportAttempt,
     "finish": Finish,
     "give_up": GiveUp,
 }
+
+# The outcomes `report_attempt` may use, mirroring schema.ActionOutcome. Kept
+# as plain strings here so this module stays free of the plan schema.
+ATTEMPT_OUTCOMES = ["succeeded", "refused", "no_change", "error", "stalled", "unknown"]
 
 
 def build(name: str, arguments: dict[str, Any]) -> Action:
@@ -300,6 +354,50 @@ TOOL_SCHEMA: list[dict[str, Any]] = [
                 "value": {"type": "string", "description": "raw text, exactly as displayed"},
             },
             "required": ["key", "value"],
+        },
+    },
+    {
+        "name": "confirm_screen",
+        "description": (
+            "State that you have arrived on the screen the case is about, and why "
+            "you are sure - name what you can actually see that only this screen "
+            "shows. Do this BEFORE concluding anything about what is or is not "
+            "present here. If you cannot honestly confirm it, do not call this; "
+            "keep navigating, or give_up. An absence noticed on the wrong screen "
+            "proves nothing."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "screen": {"type": "string", "description": "what this screen is"},
+                "evidence": {
+                    "type": "string",
+                    "description": "what you can see that makes you sure",
+                },
+            },
+            "required": ["screen", "evidence"],
+        },
+    },
+    {
+        "name": "report_attempt",
+        "description": (
+            "Use this when the case asked you to actually attempt something and you "
+            "have now tried it. Report what the app did, in the app's terms: "
+            "'refused' if it explicitly said no, 'no_change' if it appeared to "
+            "accept but nothing actually changed, 'succeeded' if it went through, "
+            "'error' if the app errored, 'stalled' if you could not complete the "
+            "attempt for reasons of your own. Be accurate rather than helpful - "
+            "'succeeded' on something the case expected to be blocked is a real "
+            "finding, not a mistake to hide."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "key": {"type": "string", "description": "name for this attempt"},
+                "outcome": {"type": "string", "enum": ATTEMPT_OUTCOMES},
+                "detail": {"type": "string", "description": "what you saw happen"},
+            },
+            "required": ["key", "outcome", "detail"],
         },
     },
     {
