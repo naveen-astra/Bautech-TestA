@@ -125,7 +125,14 @@ def compile_plans(
     cases: list[RawTestCase], screen_map: ScreenMap, args: argparse.Namespace
 ) -> tuple[list[TestPlan], list[CaseResult]]:
     """Compile every case; turn failures into BLOCKED results rather than gaps."""
-    compiler = PlanCompiler(screen_map, model=args.model)
+    # The compile stage runs on whichever brain is configured, which is a free
+    # one by default. It used to be hardwired to a paid model, so a cache miss
+    # on any of the other 82 cases would simply fail - the whole suite was
+    # gated behind an API key nobody had set.
+    from sentinel.brains import make_compiler_client
+
+    client = make_compiler_client()
+    compiler = PlanCompiler(screen_map, client=client, model=args.model)
     plans: list[TestPlan] = []
     blocked: list[CaseResult] = []
 
