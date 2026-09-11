@@ -114,7 +114,7 @@ def make_screen(labels: list[str]) -> Screen:
 # --------------------------------------------------------------------------- #
 section("Perception reads a real captured screen, and only the app")
 
-real = capture_from_file(ROOT / "results" / "ui_home.xml", "com.naviconinfra.bautech")
+real = capture_from_file(ROOT / "tests" / "fixtures" / "bautech_sites_screen.xml", "com.naviconinfra.bautech")
 check_true("elements were found in the real dump", len(real.elements) > 0)
 check_true("every element belongs to the app under test",
            all(e.index > 0 for e in real.elements))
@@ -132,7 +132,7 @@ check_true("no system-UI text reached the agent (the status-bar mis-tap class of
            not any(real.contains(noise) for noise in status_bar_noise))
 
 rendered = real.render()
-raw_size = len((ROOT / "results" / "ui_home.xml").read_text(encoding="utf-8"))
+raw_size = len((ROOT / "tests" / "fixtures" / "bautech_sites_screen.xml").read_text(encoding="utf-8"))
 check_true("the rendered screen is far smaller than the raw hierarchy",
            len(rendered) < raw_size / 5)
 
