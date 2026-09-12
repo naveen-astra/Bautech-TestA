@@ -139,7 +139,7 @@ running unattended in one command inside two hours. Here is where each requireme
 | Catch a seeded regression, no code change | Flows and assertions are identical between builds; only the app differs | ✅ Rehearsed in `roundtrip.py` |
 | Handle a reworded case live | Cache keyed on a hash of the row — reword is a cache miss | ✅ |
 | One command, unattended | `python run.py` | ✅ |
-| Under two hours | Persona-wave scheduling | ⚠️ Projected, not yet measured |
+| Under two hours | Persona-wave scheduling | ⚠️ Projected |
 | BrowserStack + Maestro | `backends/browserstack.py` | ✅ Proven live |
 | Zero recurring cost | Free-tier / local brains | ✅ $0.00 |
 
