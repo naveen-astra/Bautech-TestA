@@ -278,3 +278,115 @@ def login(
         f"fresh sessions; not something this login sequence can fix)",
         steps,
     )
+
+
+def logout(
+    adb: str,
+    package: str,
+    log=print,
+    timeout: float = 20.0,
+) -> LoginResult:
+    """Sign out of whatever session is active, back to the login screen.
+
+    HONESTY ABOUT WHAT IS AND IS NOT CONFIRMED HERE
+
+    Every selector in `login()` above was confirmed against a real hierarchy
+    dump before it was trusted. This function cannot make the same claim: no
+    capture of a real logged-in screen has ever shown where sign-out actually
+    lives. What it stands on instead:
+
+    *   Two real strings from this build's own localisation table
+        (`config/app_labels.json`): `dashboardLogout` = "Logout" and
+        `authSignOut` / `signOutLabel` = "Sign Out". Both are searched for -
+        neither is invented.
+    *   `authSignOutConfirmation` = "Are you sure you want to sign out?"
+        proves a confirmation step exists in the real app, so one is handled
+        here rather than assumed away.
+
+    What it does NOT know: which screen shows the control, or how to get
+    there. `config/screen_map.yaml`'s `navigation.drawer_items` - built from
+    a real screenshot of the side menu - has no logout entry, and no
+    hamburger-icon selector is catalogued anywhere in this project. So this
+    only works if the control is already visible on the screen handed to it;
+    it does not open a drawer or navigate to find one, because there is
+    nothing real to navigate with yet. Confirm the actual path with a
+    hierarchy dump on real hardware, add the finding to `screen_map.yaml`
+    the same way every other entry there was earned, and this function can
+    be extended to reach it - guessing a tap sequence now would risk exactly
+    the mis-tap class of bug the rest of this project was built to avoid.
+
+    Structured exactly like `login()`: real state is checked at every step,
+    nothing is assumed from timing, and a failure says precisely what was
+    and was not found rather than a bare "it didn't work".
+    """
+    steps: list[str] = []
+
+    def note(msg: str) -> None:
+        steps.append(msg)
+        log(f"  logout: {msg}")
+
+    try:
+        screen = capture(adb, package)
+    except PerceptionError as exc:
+        return LoginResult(False, f"could not read the screen at all: {exc}", steps)
+
+    control = _find(screen, equals="Logout") or _find(screen, equals="Sign Out")
+    if control is None:
+        return LoginResult(
+            False,
+            "no 'Logout' or 'Sign Out' control on the current screen. Reaching "
+            "one is not yet catalogued in config/screen_map.yaml - see this "
+            "function's docstring for exactly what is missing and how to add "
+            f"it. Real screen was:\n{screen.render()}",
+            steps,
+        )
+    note(f"tapping {control.text!r}")
+    Tap(index=control.index).execute(adb, screen)
+    _settle()
+
+    # The build's own strings prove a confirmation dialog exists
+    # (authSignOutConfirmation: "Are you sure you want to sign out?"), so a
+    # second tap is treated as expected rather than optional. The exact
+    # label Bautech uses on that dialog's confirm button has never been
+    # confirmed either - the same candidates as the first tap, plus the
+    # generic wording a confirmation dialog would plausibly use, are all
+    # tried in order, and it is simply skipped if none appears (a build that
+    # signs out with no confirmation at all is equally plausible and costs
+    # nothing extra to allow for).
+    screen = capture(adb, package)
+    confirm = (
+        _find(screen, equals="Sign Out")
+        or _find(screen, equals="Logout")
+        or _find(screen, equals="Yes")
+        or _find(screen, equals="OK")
+        or _find(screen, equals="Confirm")
+    )
+    if confirm is not None:
+        note(f"confirming with {confirm.text!r}")
+        Tap(index=confirm.index).execute(adb, screen)
+        _settle()
+
+    # Poll for genuine return to the login screen - the same discipline
+    # login()'s own verify-poll uses: real state, not a fixed sleep.
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        try:
+            screen = capture(adb, package)
+        except PerceptionError:
+            _settle(1.5)
+            continue
+        if (
+            _find(screen, starts_with="Welcome Back")
+            or _find(screen, starts_with="Phone")
+            or _find(screen, equals="Send OTP")
+        ):
+            note("back on the login screen - sign-out went through")
+            return LoginResult(True, "", steps)
+        _settle(1.5)
+
+    return LoginResult(
+        False,
+        f"tapped {control.text!r} but the login screen never reappeared "
+        f"within {timeout:.0f}s - real screen was:\n{screen.render()}",
+        steps,
+    )
