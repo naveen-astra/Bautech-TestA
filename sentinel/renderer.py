@@ -39,6 +39,7 @@ from typing import Any
 import yaml
 
 from sentinel.schema import Capability, Segment, Step, TestPlan
+from sentinel.scheduler import Wave
 from sentinel.screen_map import ScreenMap
 
 OBS_MARKER = "@@OBS"
@@ -799,3 +800,81 @@ class FlowRenderer:
             (out_dir / "fetch_otp.js").write_text(FETCH_OTP_JS, encoding="utf-8")
 
         return written
+
+    def render_scheduled(
+        self, waves: list[Wave], out_dir: str | Path
+    ) -> tuple[list[Path], list[tuple[str, str, str]]]:
+        """Render segments in the order `scheduler.schedule()` computed, not sheet order.
+
+        `render_plan` renders every segment of one plan together, which is
+        the wrong unit here: the scheduler batches segments from *different*
+        plans into a wave, and a single cross-persona plan (TC-032's Engineer
+        segment, then its later Admin segment) can legitimately have its own
+        segments land in two different waves. So this works per segment, via
+        the same `render_segment` every other path already uses - nothing
+        about Maestro syntax changes, only which order files are written in.
+
+        That order matters because neither backend takes an explicit run
+        order: `LocalBackend.run` hands Maestro the whole directory and lets
+        it walk it, and `BrowserstackBackend` calls
+        `sorted(Path(flow_dir).rglob("*.yaml"))` before zipping. Both
+        therefore execute in directory-sort order - so a wave-numbered
+        filename prefix (`w000-...`, `w001-...`) is what actually makes the
+        scheduler's persona-batching reach either backend. Nothing
+        downstream needs to know a schedule exists.
+
+        WHAT THIS DOES NOT DO. Each segment is still its own flow file with
+        its own `launchApp(clearState: true)` and its own login at the top,
+        exactly as `render_segment` always has - this does not merge a
+        wave's segments behind one shared login, which is the change that
+        would actually collapse login count. That is a change to
+        `render_segment`'s own flow model (today it assumes a fresh app and
+        resets `self._anchored` at the top of every call), and it is
+        deliberately not made here without device time to confirm it does
+        not disturb the anchor-tracking the rest of this file depends on.
+        What this buys on its own: flows run in persona-batched order rather
+        than sheet order, which is real and cost nothing to get wrong.
+
+        Returns the files written, and `(case_id, persona, error)` for any
+        segment that failed to render - the caller reports those as
+        `BLOCKED` per plan, same as `render_plan`'s failure path.
+        """
+        out_dir = Path(out_dir)
+        out_dir.mkdir(parents=True, exist_ok=True)
+        written: list[Path] = []
+        failures: list[tuple[str, str, str]] = []
+        relay_needed = False
+        default_mode = self.personas.get("defaults", {}).get("otp_mode", "fixed")
+
+        for wave in waves:
+            for item in wave.items:
+                persona = item.segment.persona
+                try:
+                    text = self.render_segment(item.plan, item.segment, item.segment_index)
+                except Exception as exc:
+                    # Broad on purpose, matching render_plan's own caller in
+                    # run.py: an unverified screen-map target raises
+                    # screen_map.UnverifiedTarget, not RenderError, and one
+                    # bad plan must become a BLOCKED entry for that plan
+                    # alone, never an unhandled crash of the whole run.
+                    failures.append((item.plan.case_id, persona, str(exc)))
+                    continue
+
+                name = (
+                    f"w{item.wave_index:03d}-{_slug(persona)}-"
+                    f"{item.plan.case_id}-{item.segment_index}.yaml"
+                )
+                path = out_dir / name
+                path.write_text(text, encoding="utf-8")
+                written.append(path)
+
+                mode = self.personas.get("personas", {}).get(persona, {}).get(
+                    "otp_mode", default_mode
+                )
+                if mode == "relay":
+                    relay_needed = True
+
+        if relay_needed:
+            (out_dir / "fetch_otp.js").write_text(FETCH_OTP_JS, encoding="utf-8")
+
+        return written, failures

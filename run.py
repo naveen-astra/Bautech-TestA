@@ -43,6 +43,7 @@ from sentinel.observation import collect, find_evidence, flow_boundaries
 from sentinel.parser import SheetError, load_suite
 from sentinel.renderer import FlowRenderer, RenderError
 from sentinel.report import write_all
+from sentinel import scheduler
 from sentinel.schema import CaseResult, FailureClass, Feasibility, RawTestCase, TestPlan
 from sentinel.screen_map import ScreenMap
 from sentinel.verdict import blocked_case, decide, summarise
@@ -363,19 +364,26 @@ def main(argv: list[str] | None = None) -> int:
         _log(f"cannot render: {exc}")
         return 2
 
-    rendered = 0
-    for plan in plans:
-        if plan.feasibility is Feasibility.NEEDS_UNAVAILABLE_INTERFACE:
-            continue
-        try:
-            rendered += len(renderer.render_plan(plan, flow_dir))
-        except (RenderError, Exception) as exc:
-            blocked.append(
-                blocked_case(
-                    plan.case_id, plan.primary_persona, plan.title,
-                    f"could not be rendered: {exc}", FailureClass.AUTOMATION_FAILURE,
-                )
+    automatable = [p for p in plans if p.feasibility is not Feasibility.NEEDS_UNAVAILABLE_INTERFACE]
+    waves = scheduler.schedule(automatable)
+    sheet_order_logins = sum(len(p.segments) for p in automatable)
+    _log(
+        f"  scheduled into {len(waves)} persona wave(s), "
+        f"{scheduler.login_count(waves)} login(s) where sheet order would need "
+        f"{sheet_order_logins}"
+    )
+
+    written, render_failures = renderer.render_scheduled(waves, flow_dir)
+    rendered = len(written)
+    plans_by_id = {p.case_id: p for p in plans}
+    for case_id, persona, error in render_failures:
+        plan = plans_by_id[case_id]
+        blocked.append(
+            blocked_case(
+                plan.case_id, persona, plan.title,
+                f"could not be rendered: {error}", FailureClass.AUTOMATION_FAILURE,
             )
+        )
     _log(f"  rendered {rendered} flow file(s) -> {flow_dir.relative_to(ROOT)}")
 
     if args.dry_run:
