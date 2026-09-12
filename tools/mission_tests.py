@@ -269,6 +269,103 @@ check("no device time was spent on it", len(run.steps), 0)
 
 
 # --------------------------------------------------------------------------- #
+section("A live agent is not bound by the compiler's screen-map gap")
+
+# The compiler declines a case for a reason that belongs to Mode B alone: the
+# renderer cannot emit a Maestro command for a selector the screen map has
+# never catalogued. The live agent in this file reads the real screen
+# directly and has no such dependency, so bypass_feasibility_gate lets it try
+# anyway - the two paths have genuinely different capabilities, and the gate
+# must not force the live agent down to the weaker one.
+
+case_absence, plan_absence = absence_plan()
+infeasible_but_real = plan_absence.model_copy(update={
+    "feasibility": Feasibility.NEEDS_UNAVAILABLE_INTERFACE,
+    "feasibility_reason": "add_site_button has no verified selector in screen_map.yaml",
+})
+
+install_device(["Sites", "Aqua Line"])  # no Add Site anywhere the agent can see
+brain = ScriptedBrain([
+    ("confirm_screen", {"screen": "Sites List",
+                        "evidence": "shows site entries such as Aqua Line"}),
+    ("note", {"key": "probe", "value": "absent"}),
+    ("finish", {"summary": "confirmed no Add Site option", "reached_target_screen": True}),
+])
+result, run = execute(case_absence, infeasible_but_real, brain,
+                      adb="adb", package="pkg", log=lambda m: None,
+                      bypass_feasibility_gate=True)
+check_true("without the bypass this plan would never be attempted at all",
+           infeasible_but_real.feasibility is Feasibility.NEEDS_UNAVAILABLE_INTERFACE)
+check_true("with the bypass the agent genuinely ran", len(run.steps) > 0)
+check_true("the report reflects what the agent actually saw, not the compiler's excuse",
+           "not attempted" not in result.actual.lower())
+# This plan's assertion needs a differential-probe observation to ever reach
+# PASS or FAIL - none was supplied, so the ladder correctly lands on
+# ENVIRONMENT_BLOCK ("absence without a control probe is not evidence"),
+# never on MISSING_INTERFACE's canned bypass-defeating text. That distinction
+# is the actual thing under test here: a real, ladder-computed conclusion,
+# not the fixed message decide() would have produced without the fix in
+# execute() above.
+check("the failure class is the ladder's own real conclusion",
+      result.failure_class, FailureClass.ENVIRONMENT_BLOCK)
+check_true("never the canned MISSING_INTERFACE 'no interface available' message",
+           result.failure_class != FailureClass.MISSING_INTERFACE)
+
+# A numeric-delta assertion needs no differential probe at all, so this is
+# the clean end-to-end demonstration: the compiler declined the case for a
+# screen-map reason, the bypassed agent reached it anyway, and a real PASS
+# comes out the other end - the whole point of decoupling the two.
+case_delta, plan_delta = delta_plan()
+infeasible_delta = plan_delta.model_copy(update={
+    "feasibility": Feasibility.NEEDS_UNAVAILABLE_INTERFACE,
+    "feasibility_reason": "stock_level has no verified selector in screen_map.yaml",
+})
+install_device(["Cement", "Total Stock: 500"])
+brain = ScriptedBrain([
+    ("confirm_screen", {"screen": "Material", "evidence": "shows Cement and a stock total"}),
+    ("note", {"key": "stock_before", "value": "500"}),
+    ("tap", {"index": 1}),
+    ("note", {"key": "stock_after", "value": "600"}),
+    ("finish", {"summary": "purchase saved", "reached_target_screen": True}),
+])
+result, run = execute(case_delta, infeasible_delta, brain, adb="adb", package="pkg",
+                      log=lambda m: None, bypass_feasibility_gate=True)
+check("a case the compiler declined comes back a real PASS once the live agent tries it",
+      result.verdict, Verdict.PASS)
+check_true("computed by real subtraction, not by the agent's opinion",
+           "500" in result.actual or "100" in result.actual or "600" in result.actual)
+
+# The bypass must not turn a genuine interface gap into a fabricated pass.
+# Nothing exists for the agent to find here even once it is allowed to look -
+# it looks, does not find it, and gives up honestly, same as any other
+# unreachable case.
+_, truly_infeasible = delta_plan()
+truly_infeasible = truly_infeasible.model_copy(update={
+    "feasibility": Feasibility.NEEDS_UNAVAILABLE_INTERFACE,
+    "feasibility_reason": "needs a real card payment",
+    "assertions": [],  # the compiler never had anything to check against
+})
+install_device(["Billing", "Plan: Free"])
+brain = ScriptedBrain([
+    ("give_up", {"reason": "no payment or billing-cycle control exists anywhere I can reach"}),
+])
+result, run = execute(case, truly_infeasible, brain, adb="adb", package="pkg",
+                      log=lambda m: None, bypass_feasibility_gate=True)
+check("a genuine interface gap still comes back BLOCKED even under bypass",
+      result.verdict, Verdict.BLOCKED)
+check_true("charged to automation, with the agent's own real reason",
+           "payment" in result.actual.lower() or "billing" in result.actual.lower())
+
+# And the ordinary compiled path must be completely unaffected by the
+# parameter's mere existence - the default has to still be the safe one.
+result, run = execute(case, unattemptable, brain, adb="adb", package="pkg", log=lambda m: None)
+check("without the flag, the old behaviour is exactly preserved",
+      result.verdict, Verdict.BLOCKED)
+check("and no device time is spent, same as before this change existed",
+      len(run.steps), 0)
+
+
+# --------------------------------------------------------------------------- #
 section("The agent reads the sheet's own words")
 
 install_device(["Sites"])
