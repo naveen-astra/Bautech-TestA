@@ -12,7 +12,7 @@ evidence that earned it.
 ![Platform](https://img.shields.io/badge/platform-Android-3DDC84?logo=android&logoColor=white)
 ![Driver](https://img.shields.io/badge/driver-Maestro%20%2B%20adb-FF6B35)
 ![Cost](https://img.shields.io/badge/LLM%20cost-%240.00-2EA043)
-![Tests](https://img.shields.io/badge/offline%20checks-290%20passing-2EA043)
+![Tests](https://img.shields.io/badge/offline%20checks-334%20passing-2EA043)
 ![Suite](https://img.shields.io/badge/suite-85%2F85%20planned-2EA043)
 
 *Built for Navicon InfraProjects*
@@ -60,7 +60,7 @@ evidence that earned it.
 
 | | |
 |---|---|
-| **[17. Verifying the System](#17-verifying-the-system)** | 290 checks, no device required |
+| **[17. Verifying the System](#17-verifying-the-system)** | 334 checks, no device required |
 | **[18. Results to Date](#18-results-to-date)** | Measured outcomes, not projections |
 | **[19. Cost](#19-cost)** | Why a full run is free |
 | **[20. Project Structure](#20-project-structure)** | Every file, and what it does |
@@ -133,7 +133,7 @@ running unattended in one command inside two hours. Here is where each requireme
 | Understand NL test cases | `parser.py` → `compiler.py`, or the live agent reading the row verbatim | ✅ 85/85 planned |
 | Navigate the real app | `perception.py` + `actions.py` (Mode A); `renderer.py` → Maestro (Mode B) | ✅ Proven on hardware |
 | Observe what happened | `observation.py` (`@@OBS` protocol); `mission.py` (agent observations) | ✅ |
-| Verify and judge | `verifier.py` → `adjudicator.py` → `verdict.py` — all deterministic | ✅ 290 checks |
+| Verify and judge | `verifier.py` → `adjudicator.py` → `verdict.py` — all deterministic | ✅ 334 checks |
 | Report with evidence | `report.py`, `demo_report.py` | ✅ |
 | Prove a negative, not just fail to find | The five-rung ladder + differential probe | ✅ 15/19 + 7 bonus |
 | Catch a seeded regression, no code change | Flows and assertions are identical between builds; only the app differs | ✅ Rehearsed in `roundtrip.py` |
@@ -602,7 +602,7 @@ afterward in Python where it can be reasoned about explicitly.
 | `adb devices` shows `unauthorized` | The phone hasn't trusted this machine | Unlock the phone and accept the USB-debugging prompt |
 | `no device found` | Not attached, or `adb` not on `PATH` | `adb version`, then `adb devices` |
 | `could not read the screen` | App not in the foreground | Drop `--no-launch`, or open the app by hand |
-| Agent gives up on the login screen | **Known Bautech defect** ([BAU-001](#22-defects-found)) — OTP verification does not complete on a fresh session | Log in manually once, then run with `--no-launch` |
+| Agent gives up on the login screen | **Known Bautech defect** ([BAU-001](#22-defects-found)) — Owner/Admin accounts reset to onboarding after OTP verification | Log in manually once, then run with `--no-launch`; Site Engineer (no company yet) is unaffected |
 | `BrainError: ... rate limit` | Groq's per-minute token ceiling | It waits and retries automatically; nothing to do |
 | `BrainError: getaddrinfo failed` | Transient DNS, often a VPN resolver (Cloudflare WARP) | Retries up to 8 times on its own; check `nslookup api.groq.com` if it persists |
 | `BrainError: ... needs ANTHROPIC_API_KEY` | `SENTINEL_BRAIN=claude` without a key | Switch to `groq` or `ollama` — both free |
@@ -649,14 +649,13 @@ flowchart TD
         COMPILE["compiler.py<br/>the only LLM step"]
         CACHE[".plan_cache/<br/>keyed on a hash of the row"]
         PROBE["probes.py<br/>attach the control persona"]
-        SCHED["scheduler.py<br/>persona waves - ordering only,<br/>not yet wired in"]
+        SCHED["scheduler.py<br/>persona waves, wired into rendering -<br/>orders flows, does not merge logins yet"]
         RENDER["renderer.py<br/>TestPlan to Maestro YAML"]
         BACKEND{"backend"}
         LOCAL["local.py<br/>Maestro CLI"]
         BSTACK["browserstack.py<br/>upload, build, poll"]
         COMPILE <--> CACHE
-        COMPILE --> PROBE --> RENDER --> BACKEND
-        PROBE -.->|"not yet consulted"| SCHED
+        COMPILE --> PROBE --> SCHED --> RENDER --> BACKEND
         BACKEND --> LOCAL
         BACKEND --> BSTACK
     end
@@ -739,10 +738,13 @@ Engineer submits an eMB, then the Admin approves it, and the approval genuinely 
 Engineer's segment created. So a plan's segments must run **in the order the plan declares them**,
 even while different plans interleave freely around each other.
 
-> **Current limit, stated plainly:** the scheduler produces a correct ordering and is tested (13
-> checks), but flow generation is still one flow per segment with its own login. Merging a wave's
-> segments into a single flow is the change that actually collapses login count, and it is a real
-> change to the renderer's model — deliberately not made without device time to verify it.
+> **Current limit, stated plainly:** the scheduler's ordering is wired into rendering
+> (`render_scheduled`, tested with 20 checks) — both backends now execute in wave order, since
+> neither takes an explicit run order and both walk the flow directory in sorted-filename order.
+> What it does *not* yet do is merge a wave's segments into a single flow behind one shared login —
+> that is the change that would actually collapse login count, and it is a real change to the
+> renderer's per-flow model, deliberately deferred without device time to confirm it does not
+> disturb the anchor-tracking the rest of the renderer depends on.
 
 ---
 
@@ -870,6 +872,14 @@ Three real bugs were found and fixed here, each by reading an actual failure:
 3. `subprocess.run(..., text=True)` decoded `dumpsys` output as cp1252 on Windows and crashed on a
    non-cp1252 byte **inside subprocess's own reader thread**, leaving `.stdout` as `None`. Fixed by
    capturing raw bytes and decoding UTF-8 with `errors="replace"`.
+
+**`logout()` lives in the same file, structured the same way, but cannot make the same confidence
+claim.** It searches for "Logout" or "Sign Out" — both real strings from the build's own localisation
+table, not invented — and handles the confirmation dialog those same strings prove exists. What it
+does not know is *where* the control lives: no real hierarchy dump has ever shown it, so it only
+works from a screen where the control is already visible, and fails with a specific, actionable
+reason rather than a guess when it is not. Confirming the real path and adding it to
+`screen_map.yaml` is what would let it navigate there itself — see [§21](#21-status-and-limitations).
 
 ---
 
@@ -1166,18 +1176,19 @@ Two consecutive runs must produce identical verdicts. Achieved by construction, 
 
 ## 17. Verifying the System
 
-**290 checks across ten suites, plus a full pipeline round trip — none of which need a device.**
+**334 checks across eleven suites, plus a full pipeline round trip — none of which need a device.**
 
 ```bash
-python tools/selftest.py            # 31 — no broken evidence can produce a PASS
 python tools/component_tests.py     # 58 — malformed input is refused
 python tools/browserstack_tests.py  # 47 — the cloud batch boundary
 python tools/agent_tests.py         # 36 — the live agent's loop
+python tools/mission_tests.py       # 33 — the agent decides how, never whether
 python tools/brain_tests.py         # 29 — the brain is swappable and never silently paid
+python tools/login_tests.py         # 26 — login() and logout(), stubbed device
 python tools/report_tests.py        # 26 — one folder, one report, one index
-python tools/mission_tests.py       # 22 — the agent decides how, never whether
+python tools/scheduler_tests.py     # 20 — persona-wave scheduling, wired into rendering
 python tools/otp_relay_tests.py     # 19 — the email-OTP fallback
-python tools/scheduler_tests.py     # 13 — persona-wave scheduling
+python tools/selftest.py            # 31 — no broken evidence can produce a PASS
 python tools/retry_tests.py         #  9 — retries recover crashes, never mask a defect
 python tools/roundtrip.py           # the whole pipeline, three app behaviours
 ```
@@ -1422,9 +1433,12 @@ tools/
   selftest.py  component_tests.py  roundtrip.py  agent_tests.py
   mission_tests.py  brain_tests.py  report_tests.py  retry_tests.py
   scheduler_tests.py  browserstack_tests.py  otp_relay_tests.py
+  login_tests.py
 
 docs/
   Bautech_agent_complete1.pdf    this README, rendered as the technical assessment document
+  architecture_note.md           the ≤2-page note: how it works, limits, cost, roadmap
+  defects.md                     the standalone defect list — app defects vs automation failures
   phase1_discovery.md            real-device environment findings
   navicon_email_login_reset.md   the login defect, as reported to Navicon
 
@@ -1446,6 +1460,7 @@ results/
 | Plan compiler — all 85 cases compiled and cached | ✅ **Complete** |
 | Perception · actions · agent loop · brains | ✅ **Complete** — proven on real hardware |
 | Deterministic login | ✅ **Complete** — mechanically reliable every run |
+| Deterministic logout | ⚠️ **Built and tested against a fixture** — never yet run on real hardware |
 | Differential probe generation | ✅ **Complete** |
 | Maestro renderer & observation protocol | ✅ **Complete** — hardened by real-device findings |
 | Verifier · adjudicator · verdict engine · reporting | ✅ **Complete** |
@@ -1453,7 +1468,8 @@ results/
 | Local backend | ✅ **Proven** — 3 consecutive identical real-device runs |
 | BrowserStack backend | ✅ **Proven live** — build executed, artifacts retrieved |
 | Demo reporting & index | ✅ **Complete** |
-| Persona-wave scheduler | ⚠️ **Algorithm complete**, not yet wired into flow generation |
+| Persona-wave scheduler | ✅ **Wired into rendering** — both backends now execute in wave order; merging a wave's segments behind one shared login is still deferred, pending device time |
+| Live agent's feasibility gate | ✅ **Decoupled from the compiler's screen-map dependency** — `bypass_feasibility_gate` |
 | OTP relay (email fallback) | ⚠️ **Built and tested**, not yet run against a live mailbox |
 | Screen map — loader, lint, verification gate | ⚠️ **Partial — 4 / 41 targets verified** |
 
@@ -1468,12 +1484,18 @@ results/
 - **The live agent has not yet performed a write action** — create, submit, approve — end to end on a
   real device. Every live run so far has been read-only or exploratory.
 - **No live run has yet gone through the full formal verdict bridge.** `mission.py` is complete and
-  tested (22 checks), but live demos to date show the reasoning trace rather than a formal `CaseResult`.
-- **Persona switching is blocked by the app's own login defect** ([§22](#22-defects-found)). Only the
-  currently authenticated persona can be exercised live until that is resolved. There is no `logout()`
-  yet, because there is nothing to log back in as.
-- **The scheduler is not yet wired into flow generation.** Each segment is still its own flow with its
-  own login, so the login-collapse that the two-hour budget depends on is not yet realised.
+  tested (33 checks), but live demos to date show the reasoning trace rather than a formal `CaseResult`.
+- **Persona switching is blocked by the app's own login defect** ([§22](#22-defects-found)).
+  `logout()` now exists and is tested against a stubbed screen (26 checks), but it has never run on
+  real hardware, and its own docstring is explicit that it cannot yet find its own way to the
+  control from an unknown starting screen — no hierarchy dump has ever confirmed where sign-out
+  actually lives, so it only works if the control is already visible.
+- **A wave's segments still render as separate flows, each with its own login.** The scheduler's
+  ordering now reaches both backends (`render_scheduled`, wired into `run.py`), which is a real,
+  measured reduction in persona-switching within a run — but the change that would collapse login
+  count further, merging a wave behind one shared login, is deliberately deferred: it touches the
+  renderer's per-flow anchor-tracking, and that is not something to alter without device time to
+  confirm it still holds.
 - **The screen-map lint reports 2 unusable anchors**, down from 11. `reports` and `issues` are still
   anchored on the same text as the control that navigates to them, so the check would pass whether or
   not the screen actually opened. `run.py` surfaces these as warnings on every run.
@@ -1535,23 +1557,26 @@ provider works.
 
 In dependency order — each item unblocks the ones below it.
 
-| # | Task | Blocked by |
-|---|---|---|
-| 1 | Prove one real **write** action (create / submit / approve) live via the agent | — *(achievable now)* |
-| 2 | Run one case through the full `mission.py` bridge for a formal `CaseResult` | — *(achievable now)* |
-| 3 | Test a genuinely **reworded** case to demonstrate §7.7 with zero code change | — *(achievable now)* |
-| 4 | Decouple `mission.execute()`'s feasibility gate from the screen-map-dependent compiler flag | — |
-| 5 | Build a single-command full-suite runner for the live-agent path | 1, 2 |
-| 6 | Build `logout()` and test persona switching | BAU-001 |
-| 7 | Wire the scheduler into flow generation to collapse login count | 6 |
-| 8 | Run the full 85-case live batch; record real pass/fail/BLOCKED counts and wall-clock | 5, 7 |
-| 9 | Verify the screen map's remaining 37 targets against real hierarchy dumps | 6 |
-| 10 | Complete BrowserStack 85-case cloud run | 7, 9 |
-| 11 | Produce both run reports (stable build + Day-13 seeded build) | 8, 10, Navicon's seeded build |
-| 12 | Screen recording of a complete unattended run | 8 |
+| # | Task | Status | Blocked by |
+|---|---|---|---|
+| — | Decouple `mission.execute()`'s feasibility gate from the screen-map-dependent compiler flag | ✅ **Done** — `bypass_feasibility_gate`, 11 new checks in `mission_tests.py` | — |
+| — | Wire the scheduler into flow generation | ✅ **Done** — `render_scheduled`, both backends now execute in wave order | — |
+| — | Build `logout()` | ✅ **Done** — `sentinel/login.py`, 26 checks against a stubbed device | — |
+| 1 | Prove one real **write** action (create / submit / approve) live via the agent | Pending | — *(achievable now)* |
+| 2 | Run one case through the full `mission.py` bridge for a formal `CaseResult` | Pending | — *(achievable now)* |
+| 3 | Test a genuinely **reworded** case to demonstrate §7.7 with zero code change | Pending | — *(achievable now)* |
+| 4 | Build a single-command full-suite runner for the live-agent path | Pending | 1, 2 |
+| 5 | Test whether `logout()` survives real hardware and enables persona switching | Pending | BAU-001, a device |
+| 6 | Merge a wave's segments into one flow behind one shared login (collapses login count further) | Pending | a device, to confirm the renderer's anchor-tracking survives it |
+| 7 | Run the full 85-case live batch; record real pass/fail/BLOCKED counts and wall-clock | Pending | 4, 5 |
+| 8 | Verify the screen map's remaining 37 targets against real hierarchy dumps | Pending | a device |
+| 9 | Complete BrowserStack 85-case cloud run | Pending | 6, 8 |
+| 10 | Produce both run reports (stable build + Day-13 seeded build) | Pending | 7, 9, Navicon's seeded build |
+| 11 | Screen recording of a complete unattended run | Pending | 7 |
 
 **External dependencies:** Navicon's response on BAU-001; the Day-13 seeded build; a dedicated test
-company with Site A and Site B distinct and working accounts for all three personas.
+company with Site A and Site B distinct and working accounts for all three personas; a physical
+device or emulator for everything from #5 onward.
 
 ---
 
