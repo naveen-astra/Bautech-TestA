@@ -149,17 +149,44 @@ def execute(
     refusal_markers: list[str] | None = None,
     max_steps: int = 40,
     log=print,
+    bypass_feasibility_gate: bool = False,
 ) -> tuple[CaseResult, AgentRun]:
     """Run one case with the agent, then judge it without the agent.
 
     A case the compiler already judged unautomatable is not attempted at all -
     spending device time proving that a payment gateway is still not present
     helps nobody, and `decide` reports it as BLOCKED with the reason.
+
+    WHY THIS GATE CAN BE WRONG FOR A LIVE AGENT
+
+    `NEEDS_UNAVAILABLE_INTERFACE` is decided by the compiler against
+    `config/screen_map.yaml`'s vocabulary (§21 of the README: 4/41 targets
+    verified today). That gate is correct for Mode B, because the renderer
+    genuinely cannot emit a Maestro command for a target the screen map has
+    never heard of - there is nothing to try. But the live agent in this
+    module does not read the screen map at all; it perceives whatever is
+    actually on the real screen and reasons about it directly. A plan marked
+    infeasible only because a *selector* was never catalogued may still be
+    something the live agent can navigate to and judge correctly - the
+    limitation belongs to the compiler's vocabulary, not to the agent's
+    capability, and conflating the two silently caps what the live path can
+    even attempt at whatever fraction of the screen map happens to be mapped.
+
+    Set `bypass_feasibility_gate=True` (only meaningful for a live-agent
+    caller, never for the compiled/Maestro path) to let the agent try
+    anyway. If it genuinely cannot find its way, it still calls `give_up`
+    with a real reason of its own, and that reaches the report as BLOCKED
+    through the ordinary give_up path below - never a fabricated pass. This
+    can only ever turn a compiler-side "we never tried" into a live "we
+    tried and here is what actually happened"; it can never turn a real
+    interface gap (a payment gateway that plain does not exist) into a
+    result, because there the agent will look, not find it, and give up
+    honestly, exactly as it would for any other unreachable case.
     """
     started = time.monotonic()
     started_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
 
-    if plan.feasibility is Feasibility.NEEDS_UNAVAILABLE_INTERFACE:
+    if plan.feasibility is Feasibility.NEEDS_UNAVAILABLE_INTERFACE and not bypass_feasibility_gate:
         return decide(plan, [], [], started_at=started_at), AgentRun(case_id=case.case_id)
 
     agent_case = _AgentView(case, plan)
@@ -196,8 +223,23 @@ def execute(
 
     observations = to_observed(run, plan)
     results = verify(plan, observations, refusal_markers)
+
+    # decide() carries its own, independent check of plan.feasibility - it
+    # was written for the compiled path, where NEEDS_UNAVAILABLE_INTERFACE
+    # means "never ran" by construction, and it reports a canned "not
+    # attempted" regardless of what results says. Under a genuine bypass the
+    # agent really did run and results may be real (measured: 18 of the 38
+    # infeasible plans in the current cache carry real compiled assertions,
+    # not zero), so judging must go by what results actually says, not by a
+    # feasibility label the agent's run has already made moot. Only the copy
+    # handed to decide() is touched - plan itself, and everything already
+    # computed from it above, is untouched.
+    judging_plan = plan
+    if bypass_feasibility_gate and plan.feasibility is Feasibility.NEEDS_UNAVAILABLE_INTERFACE:
+        judging_plan = plan.model_copy(update={"feasibility": Feasibility.AUTOMATABLE})
+
     result = decide(
-        plan, results, _evidence(run),
+        judging_plan, results, _evidence(run),
         duration_seconds=duration, started_at=started_at,
     )
     return result, run
