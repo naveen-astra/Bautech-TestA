@@ -191,6 +191,96 @@ check("a single plan schedules to exactly one wave", len(single), 1)
 
 
 # --------------------------------------------------------------------------- #
+section("The schedule actually reaches the renderer, not just the algorithm")
+
+# Neither backend takes an explicit run order: LocalBackend hands Maestro a
+# directory and browserstack.py sorts the directory before zipping. So the
+# only thing that can make wave order matter is the filename itself sorting
+# in wave order - this proves that property on the real FlowRenderer, not on
+# a mock, using the same screen map and personas.yaml a real run loads.
+from sentinel.renderer import FlowRenderer  # noqa: E402
+from sentinel.screen_map import ScreenMap  # noqa: E402
+import tempfile  # noqa: E402
+import yaml  # noqa: E402
+
+ROOT = Path(__file__).resolve().parent.parent
+screen_map = ScreenMap.load()
+personas_cfg = yaml.safe_load((ROOT / "config" / "personas.yaml").read_text(encoding="utf-8"))
+renderer = FlowRenderer(screen_map, personas_cfg, run_id="SCHEDTEST")
+
+# Deliberately shuffled sheet order, same as the very first section - a
+# realistic three-persona mix including a cross-persona plan.
+mixed = [
+    single_persona_plan("TC-005", "Owner"),
+    single_persona_plan("TC-009", "Site Engineer"),
+    cross_persona_plan("TC-032", ["Site Engineer", "Admin"]),
+    single_persona_plan("TC-046", "Site Engineer"),
+    single_persona_plan("TC-002", "Owner"),
+]
+waves = schedule(mixed)
+
+with tempfile.TemporaryDirectory() as tmp:
+    written, failures = renderer.render_scheduled(waves, tmp)
+    check("nothing failed to render", failures, [])
+    check("one file per segment", len(written),
+          sum(len(w.items) for w in waves))
+
+    names_as_written = [p.name for p in written]
+    names_sorted = sorted(names_as_written)
+
+    # The property that actually matters is about what a directory scan sees,
+    # not the order `written` lists them in - within one wave, items follow
+    # the scheduler's own ready-set order, not alphabetical, and that is
+    # fine, because neither backend reads `written`'s order either. Reading
+    # the wave number back out of each *sorted* filename recovering a
+    # non-decreasing sequence is what both backends actually depend on.
+    # each filename recovers a non-decreasing sequence. That is exactly what
+    # both backends rely on, since neither reads wave_index directly.
+    wave_numbers = [int(name.split("-", 1)[0][1:]) for name in names_sorted]
+    check("wave numbers recovered from sorted filenames are non-decreasing",
+          wave_numbers, sorted(wave_numbers))
+
+    check("every plan's segment index is still recoverable from its filename",
+          all(f"-{it.plan.case_id}-{it.segment_index}.yaml" in "".join(names_as_written)
+              for w in waves for it in w.items),
+          True)
+
+
+# --------------------------------------------------------------------------- #
+section("A plan that fails to render is reported, not left silently missing")
+
+from sentinel.schema import Capability as _Capability  # noqa: E402
+
+
+def broken_plan(case_id: str, persona: Persona) -> TestPlan:
+    """A plan whose one step names a target the screen map has never heard of."""
+    return TestPlan(
+        case_id=case_id, source_hash="h", title=case_id, primary_persona=persona,
+        segments=[Segment(
+            persona=persona, intent="i",
+            steps=[Step(capability=_Capability.READ_VALUE,
+                        target="a_target_that_does_not_exist_anywhere",
+                        observation_key="v")],
+        )],
+        assertions=[dummy_assertion("v")],
+    )
+
+mixed_with_break = [
+    single_persona_plan("TC-002", "Owner"),
+    broken_plan("TC-999", "Owner"),
+]
+waves2 = schedule(mixed_with_break)
+with tempfile.TemporaryDirectory() as tmp2:
+    written2, failures2 = renderer.render_scheduled(waves2, tmp2)
+    check("the good plan still renders despite the broken one alongside it",
+          any("TC-002" in p.name for p in written2), True)
+    check("the broken plan is reported as a failure, not silently dropped",
+          [f[0] for f in failures2], ["TC-999"])
+    check("the failure names the persona, for the caller's BLOCKED entry",
+          failures2[0][1], "Owner")
+
+
+# --------------------------------------------------------------------------- #
 print(f"\n{'=' * 60}")
 if _failures:
     print(f"FAILED {len(_failures)}/{_checks}:")
